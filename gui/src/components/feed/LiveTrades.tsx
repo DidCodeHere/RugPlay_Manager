@@ -306,7 +306,6 @@ function TradeItem({
   onAddToMirror?: (userId: string, username: string) => void
 }) {
   const isBuy = (trade.tradeType || '').toUpperCase() === 'BUY'
-  const isSell = (trade.tradeType || '').toUpperCase() === 'SELL'
   const iconUrl = buildImageUrl(trade.coinIcon)
   const userImageUrl = buildImageUrl(trade.userImage)
 
