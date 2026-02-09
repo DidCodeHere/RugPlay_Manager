@@ -1,0 +1,39 @@
+[package]
+name = "rugplay-gui"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "rugplay_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rugplay-core = { workspace = true }
+rugplay-networking = { workspace = true }
+rugplay-persistence = { workspace = true }
+rugplay-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+sqlx = { workspace = true }
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+dirs-next = "2.0"
+tokio-util = "0.7"
+
+# Phase 6: Mobile remote access
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tower = "0.5"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+local-ip-address = "0.6"
+uuid = { version = "1", features = ["v4"] }
+rand = { workspace = true }
+bore-cli = "0.6"
