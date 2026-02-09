@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  .btn-buy {
+    @apply bg-buy text-white hover:bg-buy-hover;
+  }
+
+  .btn-sell {
+    @apply bg-sell text-white hover:bg-sell-hover;
+  }
+
+  .btn-ghost {
+    @apply hover:bg-background-tertiary;
+  }
+
+  .card {
+    @apply rounded-lg border border-background-tertiary bg-background-secondary p-4 transition-colors duration-150;
+  }
+
+  .card-interactive {
+    @apply card hover:border-zinc-500 hover:scale-[1.01] transition-all duration-150 cursor-pointer;
+  }
+
+  .input {
+    @apply flex h-10 w-full rounded-md border border-background-tertiary bg-background px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-150;
+  }
+
+  .page-enter {
+    @apply animate-fade-in;
+  }
+}

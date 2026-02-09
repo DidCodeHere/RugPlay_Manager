@@ -1,0 +1,14 @@
+[package]
+name = "rugplay-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rugplay-core = { workspace = true }
+rugplay-networking = { workspace = true }
+rugplay-persistence = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,12 @@
+/.mydocs
+/TestScripts
+/scripts
+/target
+/buildout.txt
+node_modules
+*.db
+*.db-shm
+*.db-wal
+*.pdb
+*.exe
+dist/

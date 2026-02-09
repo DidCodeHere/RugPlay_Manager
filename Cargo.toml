@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/networking",
+    "crates/engine",
+    "crates/persistence",
+    "gui/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Rugplay Bot Team"]
+license = "MIT"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["cookies", "json", "rustls-tls"], default-features = false }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
+
+# Encryption
+aes-gcm = "0.10"
+rand = "0.8"
+argon2 = "0.5"
+machine-uid = "0.5"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Internal crates
+rugplay-core = { path = "crates/core" }
+rugplay-networking = { path = "crates/networking" }
+rugplay-engine = { path = "crates/engine" }
+rugplay-persistence = { path = "crates/persistence" }

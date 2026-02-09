@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>RugPlay Manager — Mobile</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --bg-card: #1e293b;
+      --bg-input: #334155;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --emerald: #10b981;
+      --emerald-dark: #059669;
+      --rose: #f43f5e;
+      --amber: #f59e0b;
+      --blue: #3b82f6;
+      --purple: #8b5cf6;
+      --cyan: #06b6d4;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+    /* ── Loader ── */
+    .loader { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 16px; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--emerald); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Auth Screen ── */
+    .auth-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; gap: 24px; }
+    .auth-logo { font-size: 28px; font-weight: 800; background: linear-gradient(135deg, var(--emerald), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .auth-subtitle { color: var(--text-muted); font-size: 14px; text-align: center; }
+    .auth-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 360px; }
+    .auth-card h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; text-align: center; }
+    .pin-inputs { display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; }
+    .pin-inputs input {
+      width: 44px; height: 52px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm);
+      color: var(--text); font-size: 22px; font-weight: 700; text-align: center; outline: none; transition: border-color 0.15s; caret-color: var(--emerald);
+    }
+    .pin-inputs input:focus { border-color: var(--emerald); }
+    .pin-inputs input.error { border-color: var(--rose); animation: shake 0.3s; }
+    @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+    .auth-btn {
+      width: 100%; padding: 12px; background: linear-gradient(135deg, var(--emerald), var(--emerald-dark));
+      color: white; font-size: 15px; font-weight: 600; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: opacity 0.15s;
+    }
+    .auth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .auth-btn:active:not(:disabled) { opacity: 0.85; }
+    .auth-error { color: var(--rose); font-size: 13px; text-align: center; margin-top: 12px; }
+
+    /* ── App Shell ── */
+    .app { display: none; flex-direction: column; min-height: 100vh; }
+    .app.active { display: flex; }
+
+    /* ── Header ── */
+    .header {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; background: rgba(15,23,42,0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
+    }
+    .header-brand { font-size: 16px; font-weight: 700; background: linear-gradient(135deg, var(--emerald), var(--cyan)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .header-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--emerald); animation: pulse-dot 2s infinite; }
+    @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* ── Bottom Nav ── */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+      display: flex; background: rgba(15,23,42,0.95); backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .nav-btn {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+      padding: 10px 4px 8px; background: none; border: none; color: var(--text-dim);
+      font-size: 10px; font-weight: 500; cursor: pointer; transition: color 0.15s;
+    }
+    .nav-btn.active { color: var(--emerald); }
+    .nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; }
+
+    /* ── Content ── */
+    .content { flex: 1; padding: 16px; padding-bottom: 80px; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Cards ── */
+    .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+
+    /* ── Stats Grid ── */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+    .stat-label { font-size: 11px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .stat-value { font-size: 20px; font-weight: 700; }
+    .stat-value.positive { color: var(--emerald); }
+    .stat-value.negative { color: var(--rose); }
+    .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* ── Holdings List ── */
+    .holding-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .holding-item:last-child { border-bottom: none; }
+    .holding-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+    .holding-icon {
+      width: 36px; height: 36px; border-radius: 50%; background: var(--bg-input); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: var(--text-muted); overflow: hidden;
+    }
+    .holding-icon img { width: 100%; height: 100%; object-fit: cover; }
+    .holding-name { font-weight: 600; font-size: 14px; }
+    .holding-qty { font-size: 12px; color: var(--text-muted); }
+    .holding-right { text-align: right; flex-shrink: 0; margin-left: 8px; }
+    .holding-value { font-weight: 600; font-size: 14px; }
+    .holding-pnl { font-size: 11px; margin-top: 2px; }
+
+    /* ── Module Status ── */
+    .module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .module-card { display: flex; align-items: center; gap: 10px; padding: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+    .module-emoji { font-size: 20px; flex-shrink: 0; }
+    .module-indicator { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .module-indicator.on { background: var(--emerald); box-shadow: 0 0 8px rgba(16,185,129,0.4); }
+    .module-indicator.off { background: var(--text-dim); }
+    .module-indicator.paused { background: var(--amber); }
+    .module-name { font-size: 13px; font-weight: 600; }
+    .module-status { font-size: 11px; color: var(--text-muted); }
+
+    /* ── Trades List ── */
+    .trade-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0; border-bottom: 1px solid var(--border); gap: 10px;
+    }
+    .trade-item:last-child { border-bottom: none; }
+    .trade-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+    .trade-user-avatar {
+      width: 36px; height: 36px; border-radius: 50%; background: var(--bg-input); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: var(--text-muted); overflow: hidden;
+    }
+    .trade-user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .trade-details { min-width: 0; flex: 1; }
+    .trade-header { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .trade-username { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+    .trade-type {
+      display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase; flex-shrink: 0;
+    }
+    .trade-type.buy { background: rgba(16,185,129,0.15); color: var(--emerald); }
+    .trade-type.sell { background: rgba(244,63,94,0.15); color: var(--rose); }
+    .trade-meta { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 12px; color: var(--text-muted); }
+    .trade-coin-icon { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+    .trade-coin-amount { white-space: nowrap; }
+    .trade-coin-symbol { color: var(--text-dim); white-space: nowrap; }
+    .trade-right { text-align: right; flex-shrink: 0; }
+    .trade-total-value { font-weight: 700; font-size: 14px; }
+    .trade-time { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+    /* ── Section Title ── */
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+    .section-title .count { font-size: 13px; font-weight: 500; color: var(--text-dim); }
+
+    /* ── Empty State ── */
+    .empty-state { text-align: center; padding: 32px 16px; color: var(--text-dim); }
+    .empty-state p { font-size: 14px; }
+
+    /* ── Refresh indicator ── */
+    .refresh-indicator { text-align: center; padding: 8px; font-size: 12px; color: var(--text-dim); display: none; }
+    .refresh-indicator.visible { display: block; }
+
+    /* ── Last Updated ── */
+    .last-updated { text-align: center; font-size: 11px; color: var(--text-dim); padding: 8px 0 4px; }
+
+    /* ── Settings ── */
+    .settings-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .settings-item:last-child { border-bottom: none; }
+    .settings-label { font-size: 14px; font-weight: 500; }
+    .settings-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+    .logout-btn {
+      width: 100%; padding: 12px; background: rgba(244,63,94,0.15); color: var(--rose);
+      font-size: 14px; font-weight: 600; border: 1px solid rgba(244,63,94,0.3); border-radius: var(--radius-sm); cursor: pointer; margin-top: 16px;
+    }
+    .version-text { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loader" class="loader">
+    <div class="spinner"></div>
+    <span style="color:var(--text-muted);font-size:14px;">Connecting to RugPlay Manager…</span>
+  </div>
+
+  <!-- Auth -->
+  <div id="auth-screen" class="auth-screen" style="display:none;">
+    <div class="auth-logo">RugPlay Manager</div>
+    <div class="auth-subtitle">Enter the 6-digit PIN shown in the desktop app</div>
+    <div class="auth-card">
+      <h2>🔐 Enter PIN</h2>
+      <div class="pin-inputs" id="pin-inputs">
+        <input type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="0" autocomplete="off" />
+        <input type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="1" autocomplete="off" />
+        <input type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="2" autocomplete="off" />
+        <input type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="3" autocomplete="off" />
+        <input type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="4" autocomplete="off" />
+        <input type="tel" maxlength="1" pattern="[0-9]" inputmode="numeric" data-index="5" autocomplete="off" />
+      </div>
+      <button class="auth-btn" id="auth-btn" disabled>Unlock</button>
+      <div class="auth-error" id="auth-error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app">
+    <div class="header">
+      <div class="header-brand">RugPlay Manager</div>
+      <div class="header-status"><div class="status-dot"></div><span>Live</span></div>
+    </div>
+
+    <div class="content">
+      <div id="refresh-indicator" class="refresh-indicator">Refreshing…</div>
+
+      <!-- ═══ Portfolio Page ═══ -->
+      <div id="page-portfolio" class="page active">
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Balance</div>
+            <div class="stat-value" id="stat-balance">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Net Worth</div>
+            <div class="stat-value" id="stat-networth">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Holdings Value</div>
+            <div class="stat-value" id="stat-holdings-value">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total P&amp;L</div>
+            <div class="stat-value" id="stat-pnl">—</div>
+            <div class="stat-sub" id="stat-pnl-pct"></div>
+          </div>
+        </div>
+
+        <div class="section-title">
+          <span>Holdings</span>
+          <span class="count" id="stat-holdings-count">0</span>
+        </div>
+        <div class="card">
+          <div id="holdings-list">
+            <div class="empty-state"><p>Loading holdings…</p></div>
+          </div>
+        </div>
+        <div class="last-updated" id="portfolio-updated"></div>
+      </div>
+
+      <!-- ═══ Modules Page ═══ -->
+      <div id="page-modules" class="page">
+        <div class="section-title">Module Status</div>
+        <div class="module-grid" id="module-grid"></div>
+        <div class="last-updated" id="modules-updated"></div>
+      </div>
+
+      <!-- ═══ Trades Page ═══ -->
+      <div id="page-trades" class="page">
+        <div class="section-title">Recent Trades</div>
+        <div class="card">
+          <div id="trades-list">
+            <div class="empty-state"><p>Loading trades…</p></div>
+          </div>
+        </div>
+        <div class="last-updated" id="trades-updated"></div>
+      </div>
+
+      <!-- ═══ Settings Page ═══ -->
+      <div id="page-settings" class="page">
+        <div class="section-title">Settings</div>
+        <div class="card">
+          <div class="settings-item">
+            <div>
+              <div class="settings-label">Auto-Refresh</div>
+              <div class="settings-desc">Update data every 10 seconds</div>
+            </div>
+            <label style="position:relative;display:inline-block;width:44px;height:24px;">
+              <input type="checkbox" id="auto-refresh-toggle" checked style="opacity:0;width:0;height:0;">
+              <span style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:12px;transition:.3s"></span>
+              <span id="toggle-knob" style="position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.3s"></span>
+            </label>
+          </div>
+          <div class="settings-item">
+            <div>
+              <div class="settings-label">Connection</div>
+              <div class="settings-desc" id="connection-info">—</div>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div>
+              <div class="settings-label">Session</div>
+              <div class="settings-desc" id="session-info">Active</div>
+            </div>
+          </div>
+        </div>
+        <button class="logout-btn" id="logout-btn">Disconnect Session</button>
+        <div class="version-text">RugPlay Manager Mobile v0.1.0</div>
+      </div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <div class="bottom-nav">
+      <button class="nav-btn active" data-page="portfolio">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" /></svg>
+        <span>Portfolio</span>
+      </button>
+      <button class="nav-btn" data-page="modules">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zm0 9.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zm0 9.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25a2.25 2.25 0 01-2.25-2.25v-2.25z" /></svg>
+        <span>Modules</span>
+      </button>
+      <button class="nav-btn" data-page="trades">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
+        <span>Trades</span>
+      </button>
+      <button class="nav-btn" data-page="settings">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+        <span>Settings</span>
+      </button>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
