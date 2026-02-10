@@ -23,17 +23,18 @@
 
 ## Overview
 
-RugPlay Manager is a native Windows desktop application built with:
+RugPlay Manager is a native desktop application for **Windows and Linux**, built with:
 
-| Component  | Technology               | Role                                           |
-| ---------- | ------------------------ | ---------------------------------------------- |
-| Runtime    | Rust + Tokio             | Async task execution, all backend logic        |
-| Framework  | Tauri 2.0                | Bridge between native backend and web frontend |
-| Frontend   | React + TypeScript       | User interface                                 |
-| Styling    | Tailwind CSS + Shadcn UI | Component library and theming                  |
-| Database   | SQLite via SQLx          | Local persistent storage                       |
-| Encryption | AES-256-GCM + Argon2     | Session token protection                       |
-| HTTP       | reqwest                  | API communication with Rugplay                 |
+| Component  | Technology               | Role                                               |
+| ---------- | ------------------------ | -------------------------------------------------- |
+| Runtime    | Rust + Tokio             | Async task execution, all backend logic            |
+| Framework  | Tauri 2.0                | Bridge between native backend and web frontend     |
+| Frontend   | React + TypeScript       | User interface                                     |
+| Styling    | Tailwind CSS + Shadcn UI | Component library and theming                      |
+| Database   | SQLite via SQLx          | Local persistent storage                           |
+| Encryption | AES-256-GCM + Argon2     | Session token protection                           |
+| HTTP       | reqwest                  | API communication with Rugplay                     |
+| Platforms  | Windows + Linux (x86_64) | Conditional compilation for platform-specific APIs |
 
 The application emulates browser requests to `rugplay.com`. From the server's perspective, it looks identical to a user interacting with the site normally.
 
@@ -273,14 +274,19 @@ let coins_to_sell = (quantity * 1e8).floor() / 1e8;
 
 ```
 src/components/
-├── auth/          # Login screen, token input
-├── dashboard/     # DashboardHome with stats cards
+├── auth/          # Login screen, token input, profile switching
+├── dashboard/     # DashboardHome with stats cards and module status
 ├── portfolio/     # Holdings table, sell modals
 ├── market/        # Coin browser, buy modals
+├── coin/          # Coin detail page with holder list
 ├── feed/          # LiveTrades component
 ├── sniper/        # Sniper configuration panel
 ├── sentinel/      # Sentinel management table
 ├── mirror/        # Whale watchlist, trade log
+├── dipbuyer/      # Dip Buyer settings, coin tiers, signal config, history
+├── automation/    # Centralized automation log viewer
+├── user/          # User profile pages
+├── leaderboard/   # Leaderboard with 4 category tabs
 ├── mobile/        # Mobile access setup page
 ├── settings/      # Tabbed settings (General, Sniper, Sentinel, etc.)
 ├── trade/         # Shared trade components
@@ -342,6 +348,44 @@ CREATE TABLE whales (
     username TEXT,
     performance_score REAL
 );
+
+-- Centralized automation log (all modules)
+CREATE TABLE automation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    module TEXT NOT NULL,          -- sniper, sentinel, mirror, harvester, dipbuyer
+    symbol TEXT NOT NULL,
+    coin_name TEXT DEFAULT '',
+    action TEXT NOT NULL,          -- BUY, SELL, CLAIM
+    amount_usd REAL DEFAULT 0,
+    details TEXT DEFAULT '{}',     -- JSON blob with module-specific data
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Snipe history
+CREATE TABLE snipe_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    amount REAL NOT NULL,
+    price REAL NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User profiles (multi-account)
+CREATE TABLE profiles (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    is_active INTEGER DEFAULT 0
+);
+
+-- Local reputation tracking
+CREATE TABLE reputation (
+    user_id TEXT PRIMARY KEY,
+    username TEXT,
+    score REAL DEFAULT 50,
+    rug_pull_count INTEGER DEFAULT 0,
+    total_extracted REAL DEFAULT 0
+);
 ```
 
 ---
@@ -353,30 +397,36 @@ The mobile access feature embeds a lightweight HTTP server (axum) directly insid
 ### Components
 
 - **axum HTTP server** — Serves the mobile dashboard HTML/JS and exposes REST API endpoints
-- **bore tunnel** — Creates a public TCP tunnel to the local server, making it accessible outside the LAN
+- **Cloudflare Quick Tunnel** — Creates a public HTTPS tunnel via `trycloudflare.com`, making the local server accessible outside the LAN. `cloudflared` is auto-downloaded and cached on first use.
 - **PIN authentication** — Random 6-digit PIN generated per session
-- **Session management** — Token-based sessions with automatic expiry
+- **Session management** — Token-based sessions with role-based access (Viewer, Trusted, Admin) and automatic expiry
 
 ### Endpoints
 
-| Route            | Method | Auth  | Purpose                                              |
-| ---------------- | ------ | :---: | ---------------------------------------------------- |
-| `/`              | GET    |  No   | Serves the mobile dashboard HTML                     |
-| `/app.js`        | GET    |  No   | Serves the mobile dashboard JavaScript               |
-| `/api/auth`      | POST   |  PIN  | Authenticate with 6-digit PIN, receive session token |
-| `/api/portfolio` | GET    | Token | Fetch portfolio data                                 |
-| `/api/modules`   | GET    | Token | Fetch module status                                  |
-| `/api/trades`    | GET    | Token | Fetch recent trade history                           |
+| Route               | Method |  Auth   | Purpose                                              |
+| ------------------- | ------ | :-----: | ---------------------------------------------------- |
+| `/`                 | GET    |   No    | Serves the mobile dashboard HTML                     |
+| `/app.js`           | GET    |   No    | Serves the mobile dashboard JavaScript               |
+| `/api/auth`         | POST   |   PIN   | Authenticate with 6-digit PIN, receive session token |
+| `/api/portfolio`    | GET    |  Token  | Fetch portfolio data                                 |
+| `/api/modules`      | GET    |  Token  | Fetch module status (incl. Dip Buyer)                |
+| `/api/trades`       | GET    |  Token  | Fetch recent trade history                           |
+| `/api/sentinels`    | GET    | Trusted | Fetch sentinel configurations                        |
+| `/api/sniper`       | GET    | Trusted | Fetch sniper status                                  |
+| `/api/activity`     | GET    | Trusted | Fetch automation activity log                        |
+| `/api/dipbuyer`     | GET    | Trusted | Fetch dip buyer config and status                    |
+| `/api/trade`        | POST   |  Admin  | Execute a buy or sell trade                          |
+| `/api/session/role` | GET    |  Token  | Get current session role                             |
 
 ### Architecture
 
 ```
 Phone Browser
      │
-     ▼ HTTPS via bore tunnel
-bore.pub:PORT
+     ▼ HTTPS via Cloudflare Quick Tunnel
+trycloudflare.com
      │
-     ▼ TCP forwarded to localhost
+     ▼ forwarded to localhost
 axum HTTP Server (inside Tauri app)
      │
      ▼ reads from

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import {
@@ -13,20 +13,49 @@ import {
   Save,
   Zap,
 } from 'lucide-react'
+import { activityStore } from '@/lib/activityStore'
+import { FormattedInput, ToggleSwitch } from '@/components/ui/FormattedInput'
 import type {
   SniperStatusResponse,
   SniperConfig,
   SniperTriggeredEvent,
 } from '@/lib/types'
 
-export function SniperPage() {
+interface SniperPageProps {
+  setNavGuard?: (guard: (() => boolean) | null) => void
+}
+
+export function SniperPage({ setNavGuard }: SniperPageProps) {
   const [status, setStatus] = useState<SniperStatusResponse | null>(null)
   const [config, setConfig] = useState<SniperConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
   const [newBlacklistedCreator, setNewBlacklistedCreator] = useState('')
-  const [snipeLog, setSnipeLog] = useState<SniperTriggeredEvent[]>([])
+  const snipeLog = useSyncExternalStore(
+    activityStore.subscribeSnipeLog,
+    activityStore.getSnipeLog,
+  )
+
+  // Navigation guard for unsaved changes
+  useEffect(() => {
+    if (!setNavGuard) return
+    setNavGuard(() => {
+      if (!hasChanges) return true
+      return window.confirm('You have unsaved Sniper changes. Discard them?')
+    })
+    return () => setNavGuard(null)
+  }, [hasChanges, setNavGuard])
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!hasChanges) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasChanges])
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -42,12 +71,20 @@ export function SniperPage() {
 
   useEffect(() => {
     fetchStatus()
+
+    // Load persisted snipe history from DB into the in-memory store
+    invoke<SniperTriggeredEvent[]>('get_snipe_history', { limit: 50 })
+      .then((entries) => {
+        if (entries.length > 0) {
+          activityStore.loadSnipeHistory(entries)
+        }
+      })
+      .catch((e) => console.error('Failed to load snipe history:', e))
   }, [fetchStatus])
 
-  // Listen for sniper events
+  // Refresh status when a snipe happens (event is captured globally by activityStore)
   useEffect(() => {
-    const unlistenTriggered = listen<SniperTriggeredEvent>('sniper-triggered', (event) => {
-      setSnipeLog(prev => [event.payload, ...prev].slice(0, 50)) // keep last 50
+    const unlistenTriggered = listen<SniperTriggeredEvent>('sniper-triggered', () => {
       fetchStatus()
     })
 
@@ -190,109 +227,116 @@ export function SniperPage() {
 
         <div className="grid grid-cols-2 gap-4">
           {/* Buy Amount */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-emerald-400" />
               Buy Amount (USD)
             </label>
-            <input
-              type="number"
-              min="1"
-              step="100"
+            <FormattedInput
               value={config.buyAmountUsd}
-              onChange={(e) => updateConfig('buyAmountUsd', parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+              onChange={(v) => updateConfig('buyAmountUsd', v)}
+              prefix="$"
+              min={1}
+              step={100}
             />
-            <p className="text-xs text-foreground-muted mt-1">USD to spend per snipe</p>
+            <p className="form-hint">USD to spend per snipe</p>
           </div>
 
           {/* Max Market Cap */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-blue-400" />
               Max Market Cap
             </label>
-            <input
-              type="number"
-              min="0"
-              step="10000"
+            <FormattedInput
               value={config.maxMarketCapUsd}
-              onChange={(e) => updateConfig('maxMarketCapUsd', parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+              onChange={(v) => updateConfig('maxMarketCapUsd', v)}
+              prefix="$"
+              min={0}
+              step={10000}
             />
-            <p className="text-xs text-foreground-muted mt-1">Skip coins above this market cap (0 = no limit)</p>
+            <p className="form-hint">Skip coins above this market cap (0 = no limit)</p>
           </div>
 
           {/* Max Coin Age */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Clock className="w-4 h-4 text-purple-400" />
               Max Coin Age (seconds)
             </label>
-            <input
-              type="number"
-              min="0"
-              step="60"
+            <FormattedInput
               value={config.maxCoinAgeSecs}
-              onChange={(e) => updateConfig('maxCoinAgeSecs', parseInt(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+              onChange={(v) => updateConfig('maxCoinAgeSecs', Math.round(v))}
+              suffix="sec"
+              min={0}
+              step={60}
             />
-            <p className="text-xs text-foreground-muted mt-1">Only buy coins newer than this (0 = no limit)</p>
+            <p className="form-hint">Only buy coins newer than this (0 = no limit)</p>
+          </div>
+
+          {/* Min Coin Age (Creator Cooldown) */}
+          <div className="form-field">
+            <label className="form-label">
+              <Clock className="w-4 h-4 text-amber-400" />
+              Min Coin Age (seconds)
+            </label>
+            <FormattedInput
+              value={config.minCoinAgeSecs}
+              onChange={(v) => updateConfig('minCoinAgeSecs', Math.round(v))}
+              suffix="sec"
+              min={0}
+              step={5}
+            />
+            <p className="form-hint">Wait this long after creation (60s creator period + buffer)</p>
           </div>
 
           {/* Auto-create Sentinel */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
-              <Shield className="w-4 h-4 text-emerald-400" />
-              Auto-Create Sentinel
-            </label>
-            <button
-              onClick={() => updateConfig('autoCreateSentinel', !config.autoCreateSentinel)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                config.autoCreateSentinel ? 'bg-emerald-600' : 'bg-zinc-600'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  config.autoCreateSentinel ? 'translate-x-6' : 'translate-x-1'
-                }`}
+          <div className="form-field">
+            <div className="flex items-center justify-between">
+              <label className="form-label mb-0">
+                <Shield className="w-4 h-4 text-emerald-400" />
+                Auto-Create Sentinel
+              </label>
+              <ToggleSwitch
+                enabled={config.autoCreateSentinel}
+                onChange={(v) => updateConfig('autoCreateSentinel', v)}
               />
-            </button>
-            <p className="text-xs text-foreground-muted mt-2">Create SL/TP sentinel after each snipe</p>
+            </div>
+            <p className="form-hint">Create SL/TP sentinel after each snipe</p>
           </div>
         </div>
 
         {/* Sentinel defaults when auto-creating */}
         {config.autoCreateSentinel && (
-          <div className="mt-4 p-4 rounded-lg bg-background border border-zinc-700/50">
-            <h3 className="text-sm font-medium text-foreground-muted mb-3">Sentinel Settings for Sniped Coins</h3>
+          <div className="mt-4 form-field">
+            <h3 className="text-sm font-medium text-zinc-300 mb-3">Sentinel Settings for Sniped Coins</h3>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="text-xs text-foreground-muted">Stop Loss %</label>
+                <label className="text-xs text-zinc-400 mb-1 block">Stop Loss %</label>
                 <input
                   type="number"
                   value={config.stopLossPct}
                   onChange={(e) => updateConfig('stopLossPct', parseFloat(e.target.value) || 0)}
-                  className="w-full mt-1 px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  className="input text-sm h-9"
                 />
               </div>
               <div>
-                <label className="text-xs text-foreground-muted">Take Profit %</label>
+                <label className="text-xs text-zinc-400 mb-1 block">Take Profit %</label>
                 <input
                   type="number"
                   value={config.takeProfitPct}
                   onChange={(e) => updateConfig('takeProfitPct', parseFloat(e.target.value) || 0)}
-                  className="w-full mt-1 px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  className="input text-sm h-9"
                 />
               </div>
               <div>
-                <label className="text-xs text-foreground-muted">Trailing Stop %</label>
+                <label className="text-xs text-zinc-400 mb-1 block">Trailing Stop %</label>
                 <input
                   type="number"
                   value={config.trailingStopPct ?? ''}
                   onChange={(e) => updateConfig('trailingStopPct', e.target.value ? parseFloat(e.target.value) : null)}
                   placeholder="Disabled"
-                  className="w-full mt-1 px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  className="input text-sm h-9"
                 />
               </div>
             </div>
@@ -316,7 +360,7 @@ export function SniperPage() {
             value={newBlacklistedCreator}
             onChange={(e) => setNewBlacklistedCreator(e.target.value)}
             placeholder="Enter creator username"
-            className="flex-1 px-3 py-2 rounded-lg bg-background border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+            className="input flex-1"
             onKeyDown={(e) => {
               if (e.key === 'Enter') addBlacklistedCreator()
             }}
@@ -367,7 +411,7 @@ export function SniperPage() {
         ) : (
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {snipeLog.map((snipe, i) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-background">
+              <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-white/[0.03]">
                 <div>
                   <span className="font-medium text-amber-400">${snipe.symbol}</span>
                   <span className="text-foreground-muted text-sm ml-2">{snipe.coinName}</span>

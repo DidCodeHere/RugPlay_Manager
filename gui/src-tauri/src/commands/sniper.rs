@@ -101,3 +101,46 @@ pub async fn clear_coin_cache(
     state.coin_cache.clear();
     Ok(())
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnipeLogEntry {
+    pub symbol: String,
+    pub coin_name: String,
+    pub buy_amount_usd: f64,
+    pub market_cap: f64,
+    pub price: f64,
+    pub coin_age_secs: i64,
+    pub created_at: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_snipe_history(
+    app_handle: tauri::AppHandle,
+    limit: Option<u32>,
+) -> Result<Vec<SnipeLogEntry>, String> {
+    let state = app_handle.state::<crate::AppState>();
+    let db_guard = state.db.read().await;
+    let db = db_guard.as_ref().ok_or("Database not initialized")?;
+
+    let active = rugplay_persistence::sqlite::get_active_profile(db.pool())
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("No active profile")?;
+
+    let cap = limit.unwrap_or(50).min(100) as i64;
+
+    let rows = sqlx::query_as::<_, (String, String, f64, f64, f64, i64, Option<String>)>(
+        "SELECT symbol, coin_name, buy_amount_usd, market_cap, price, coin_age_secs, created_at \
+         FROM snipe_log WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?"
+    )
+    .bind(active.id)
+    .bind(cap)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows.into_iter().map(|(symbol, coin_name, buy_amount_usd, market_cap, price, coin_age_secs, created_at)| {
+        SnipeLogEntry { symbol, coin_name, buy_amount_usd, market_cap, price, coin_age_secs, created_at }
+    }).collect())
+}

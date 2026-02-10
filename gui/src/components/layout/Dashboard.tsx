@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { Header } from './Header'
 import { Sidebar, type NavItemId } from './Sidebar'
 import { PortfolioView } from '@/components/portfolio'
@@ -11,8 +12,12 @@ import { TransactionHistory } from '@/components/history'
 import { CoinDetailPage } from '@/components/coin'
 import { SettingsLayout } from '@/components/settings'
 import { MirrorPage } from '@/components/mirror'
+import { DipBuyerPage } from '@/components/dipbuyer'
+import { AutomationLogPage } from '@/components/automation'
 import { MobileAccessPage } from '@/components/mobile/MobileAccessPage'
 import { DashboardHome } from '@/components/dashboard/DashboardHome'
+import { UserProfilePage } from '@/components/user'
+import { LeaderboardPage } from '@/components/leaderboard'
 import type { UserProfile, PortfolioResponse } from '@/lib/types'
 
 interface DashboardProps {
@@ -24,14 +29,38 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   const [activeNav, setActiveNav] = useState<NavItemId>('dashboard')
   const [holdings, setHoldings] = useState<PortfolioResponse['coinHoldings']>([])
   const [selectedCoinSymbol, setSelectedCoinSymbol] = useState<string | null>(null)
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
 
-  // Handle coin detail navigation
+  // Navigation guard — pages with unsaved changes register a check here
+  const navGuardRef = useRef<(() => boolean) | null>(null)
+
+  const guardedNavigate = useCallback((id: NavItemId) => {
+    if (navGuardRef.current && !navGuardRef.current()) return
+    setActiveNav(id)
+  }, [])
+
+  const setNavGuard = useCallback((guard: (() => boolean) | null) => {
+    navGuardRef.current = guard
+  }, [])
+
   const handleCoinClick = (symbol: string) => {
+    if (navGuardRef.current && !navGuardRef.current()) return
+    setSelectedUserId(null)
     setSelectedCoinSymbol(symbol)
   }
 
   const handleCoinDetailBack = () => {
     setSelectedCoinSymbol(null)
+  }
+
+  const handleUserClick = (userId: string) => {
+    if (navGuardRef.current && !navGuardRef.current()) return
+    setSelectedCoinSymbol(null)
+    setSelectedUserId(userId)
+  }
+
+  const handleUserBack = () => {
+    setSelectedUserId(null)
   }
 
   // Fetch holdings for Sentinel (so it can select coins)
@@ -48,9 +77,24 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
     fetchHoldings()
   }, [fetchHoldings])
 
-  // Clear selected coin when switching nav
+  // Refresh holdings when sentinel sells a coin
+  useEffect(() => {
+    const unlistenTrade = listen('trade-executed', () => {
+      fetchHoldings()
+    })
+    const unlistenTrigger = listen('sentinel-triggered', () => {
+      fetchHoldings()
+    })
+    return () => {
+      unlistenTrade.then(u => u())
+      unlistenTrigger.then(u => u())
+    }
+  }, [fetchHoldings])
+
+  // Clear selected coin/user when switching nav
   useEffect(() => {
     setSelectedCoinSymbol(null)
+    setSelectedUserId(null)
   }, [activeNav])
   
   return (
@@ -58,17 +102,26 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
       <Header user={user} onLogout={onLogout} />
       
       <div className="flex flex-1">
-        <Sidebar activeItem={activeNav} onNavigate={setActiveNav} />
+        <Sidebar activeItem={activeNav} onNavigate={guardedNavigate} />
         
         <main className="flex-1 p-3 lg:p-6 overflow-auto min-w-0">
-          {/* Coin Detail Page - shown on top of other views */}
-          {selectedCoinSymbol ? (
+          {/* User Profile Page - highest priority overlay */}
+          {selectedUserId ? (
+            <div key={`user-${selectedUserId}`} className="page-enter">
+              <UserProfilePage
+                userId={selectedUserId}
+                onBack={handleUserBack}
+                onCoinClick={handleCoinClick}
+              />
+            </div>
+          ) : selectedCoinSymbol ? (
             <div key={`coin-${selectedCoinSymbol}`} className="page-enter">
               <CoinDetailPage
                 symbol={selectedCoinSymbol}
                 onBack={handleCoinDetailBack}
                 onTradeComplete={fetchHoldings}
                 holdings={holdings}
+                onUserClick={handleUserClick}
               />
             </div>
           ) : (
@@ -81,6 +134,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
                   onViewSentinel={() => setActiveNav('sentinel')}
                   onViewSniper={() => setActiveNav('sniper')}
                   onViewMirror={() => setActiveNav('mirror')}
+                  onViewDipBuyer={() => setActiveNav('dipbuyer')}
                   onCoinClick={handleCoinClick}
                 />
               )}
@@ -94,15 +148,23 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               )}
 
               {activeNav === 'sentinel' && (
-                <SentinelManager holdings={holdings} />
+                <SentinelManager holdings={holdings} onCoinClick={handleCoinClick} />
               )}
 
               {activeNav === 'sniper' && (
-                <SniperPage />
+                <SniperPage setNavGuard={setNavGuard} />
               )}
 
               {activeNav === 'mirror' && (
                 <MirrorPage />
+              )}
+
+              {activeNav === 'dipbuyer' && (
+                <DipBuyerPage setNavGuard={setNavGuard} />
+              )}
+
+              {activeNav === 'automation' && (
+                <AutomationLogPage />
               )}
 
               {activeNav === 'mobile' && (
@@ -110,7 +172,11 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               )}
 
               {activeNav === 'feed' && (
-                <LiveTrades onCoinClick={handleCoinClick} />
+                <LiveTrades onCoinClick={handleCoinClick} onUserClick={handleUserClick} />
+              )}
+
+              {activeNav === 'leaderboard' && (
+                <LeaderboardPage onUserClick={handleUserClick} />
               )}
 
               {activeNav === 'history' && (
@@ -118,7 +184,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               )}
               
               {activeNav === 'settings' && (
-                <SettingsLayout />
+                <SettingsLayout setNavGuard={setNavGuard} />
               )}
             </div>
           )}

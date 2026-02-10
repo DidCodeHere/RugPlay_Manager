@@ -141,3 +141,37 @@ impl Holder {
         })
     }
 }
+
+// ─── Coin Comments ───────────────────────────────────────────────────
+
+/// Response from GET /api/coin/{SYMBOL}/comments
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoinCommentsResponse {
+    pub comments: Vec<CoinComment>,
+}
+
+/// Individual comment on a coin
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoinComment {
+    pub id: i64,
+    pub content: String,
+    pub user_id: i64,
+    pub user_username: String,
+    #[serde(default)]
+    pub user_name: Option<String>,
+    #[serde(default)]
+    pub user_image: Option<String>,
+    pub likes_count: i32,
+    #[serde(default)]
+    pub is_liked_by_user: bool,
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// Response from POST /api/coin/{SYMBOL}/comments
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostCommentResponse {
+    pub comment: CoinComment,
+}

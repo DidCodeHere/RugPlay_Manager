@@ -123,6 +123,43 @@ impl Database {
                 triggered_at TIMESTAMP,
                 FOREIGN KEY (profile_id) REFERENCES profiles(id)
             );
+
+            CREATE TABLE IF NOT EXISTS snipe_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                coin_name TEXT NOT NULL,
+                buy_amount_usd REAL NOT NULL,
+                market_cap REAL NOT NULL,
+                price REAL NOT NULL,
+                coin_age_secs INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (profile_id) REFERENCES profiles(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS automation_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id INTEGER NOT NULL,
+                module TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                coin_name TEXT NOT NULL,
+                action TEXT NOT NULL,
+                amount_usd REAL NOT NULL,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (profile_id) REFERENCES profiles(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS reputation (
+                user_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                score REAL DEFAULT 50.0,
+                rug_pulls INTEGER DEFAULT 0,
+                leaderboard_appearances INTEGER DEFAULT 0,
+                total_extracted REAL DEFAULT 0.0,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notes TEXT DEFAULT ''
+            );
             "#,
         )
         .execute(&self.pool)
@@ -135,7 +172,22 @@ impl Database {
             "ALTER TABLE sentinels ADD COLUMN has_custom_settings INTEGER DEFAULT 0"
         )
         .execute(&self.pool)
-        .await; // Ignore error if column already exists
+        .await;
+
+        // Deduplicate sentinels: keep only the newest per (profile_id, symbol)
+        let deduped = crate::sqlite::deduplicate_sentinels(&self.pool).await.unwrap_or(0);
+        if deduped > 0 {
+            eprintln!("[persistence] Migration: removed {} duplicate sentinels", deduped);
+        }
+
+        // Create unique index so duplicates can't recur (idempotent)
+        let _ = sqlx::query(
+            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_sentinels_profile_symbol_active
+               ON sentinels (profile_id, symbol)
+               WHERE triggered_at IS NULL"#
+        )
+        .execute(&self.pool)
+        .await;
 
         Ok(())
     }

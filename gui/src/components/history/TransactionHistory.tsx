@@ -222,7 +222,7 @@ export function TransactionHistory() {
             placeholder="Search by symbol..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+            className="input w-full pl-10 text-sm"
           />
         </div>
 
@@ -232,7 +232,7 @@ export function TransactionHistory() {
           <select
             value={tradeTypeFilter}
             onChange={(e) => setTradeTypeFilter(e.target.value as TradeTypeFilter)}
-            className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
+            className="input"
           >
             <option value="all">All Types</option>
             <option value="BUY">Buys Only</option>
@@ -244,7 +244,7 @@ export function TransactionHistory() {
         <select
           value={symbolFilter}
           onChange={(e) => setSymbolFilter(e.target.value)}
-          className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
+          className="input"
         >
           <option value="all">All Coins</option>
           {symbols.map((symbol) => (

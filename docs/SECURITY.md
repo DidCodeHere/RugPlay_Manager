@@ -55,7 +55,7 @@ RugPlay Manager performs the following actions, and **only** these actions:
 
 - **Does NOT collect telemetry or analytics** — No usage tracking, no crash reporting, no "phone home" behavior. Zero.
 
-- **Does NOT access any website other than `rugplay.com`** — The only exception is `bore.pub` if and only if you explicitly enable Mobile Remote Access. This is an open-source tunneling service used to make the mobile dashboard accessible outside your LAN.
+- **Does NOT access any website other than `rugplay.com`** — The only exception is `trycloudflare.com` if and only if you explicitly enable Mobile Remote Access. This uses Cloudflare Quick Tunnels to make the mobile dashboard accessible outside your LAN.
 
 - **Does NOT store your Rugplay password** — We never ask for it. We don't need it. The session token is all that's required.
 

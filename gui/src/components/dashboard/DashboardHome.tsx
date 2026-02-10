@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import {
@@ -16,15 +16,15 @@ import {
 } from 'lucide-react'
 import { HarvesterWidget } from './HarvesterWidget'
 import { ModuleStatusCard } from './ModuleStatusCard'
-import { ActivityFeed, type ActivityItem } from './ActivityFeed'
+import { ActivityFeed } from './ActivityFeed'
+import { activityStore } from '@/lib/activityStore'
 import type {
   UserProfile,
   PortfolioResponse,
   PortfolioSummary,
   SentinelTickEvent,
-  SniperTriggeredEvent,
-  HarvesterClaimedEvent,
-  TradeExecutedEvent,
+  DipBuyerTickEvent,
+  DipBuyerStatusResponse,
   CoinHolding,
 } from '@/lib/types'
 
@@ -35,6 +35,7 @@ interface DashboardHomeProps {
   onViewSentinel: () => void
   onViewSniper: () => void
   onViewMirror: () => void
+  onViewDipBuyer: () => void
   onCoinClick: (symbol: string) => void
 }
 
@@ -45,6 +46,7 @@ export function DashboardHome({
   onViewSentinel,
   onViewSniper,
   onViewMirror,
+  onViewDipBuyer,
   onCoinClick,
 }: DashboardHomeProps) {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
@@ -63,15 +65,14 @@ export function DashboardHome({
   const [mirrorEnabled, setMirrorEnabled] = useState(false)
   const [mirrorWhaleCount, setMirrorWhaleCount] = useState(0)
   const [mirrorTotal, setMirrorTotal] = useState(0)
+  const [dipbuyerEnabled, setDipbuyerEnabled] = useState(false)
+  const [dipbuyerTotal, setDipbuyerTotal] = useState(0)
 
-  // Activity feed
-  const [activities, setActivities] = useState<ActivityItem[]>([])
-  const activityIdRef = useRef(0)
-
-  const addActivity = useCallback((item: Omit<ActivityItem, 'id'>) => {
-    activityIdRef.current += 1
-    setActivities((prev) => [{ ...item, id: activityIdRef.current }, ...prev].slice(0, 20))
-  }, [])
+  // Read persistent activity feed from the store (survives unmount)
+  const activities = useSyncExternalStore(
+    activityStore.subscribeActivities,
+    activityStore.getActivities,
+  )
 
   // Fetch portfolio data
   const fetchData = useCallback(async (showRefresh = false) => {
@@ -124,12 +125,18 @@ export function DashboardHome({
         setMirrorWhaleCount(mirrorRes.trackedWhaleCount)
         setMirrorTotal(mirrorRes.totalMirrored)
       } catch { /* mirror may not be ready */ }
+
+      try {
+        const dipbuyerRes = await invoke<DipBuyerStatusResponse>('get_dipbuyer_status')
+        setDipbuyerEnabled(dipbuyerRes.enabled)
+        setDipbuyerTotal(dipbuyerRes.totalBought)
+      } catch { /* dipbuyer may not be ready */ }
     }
 
     fetchModuleStatuses()
   }, [])
 
-  // Listen to module events
+  // Listen to module status events (tick events for cards)
   useEffect(() => {
     const unlisteners: (() => void)[] = []
 
@@ -155,53 +162,15 @@ export function DashboardHome({
       }
     ).then((u) => unlisteners.push(u))
 
-    listen<{ sentinelId: number; symbol: string; reason: string; triggerType: string }>(
-      'sentinel-triggered',
-      (event) => {
-        const p = event.payload
-        addActivity({
-          type: 'sentinel',
-          title: `Sentinel ${p.triggerType === 'stop_loss' ? 'SL' : p.triggerType === 'take_profit' ? 'TP' : 'TS'} — ${p.symbol}`,
-          description: p.reason,
-          timestamp: Date.now(),
-        })
-      }
-    ).then((u) => unlisteners.push(u))
-
-    listen<SniperTriggeredEvent>('sniper-triggered', (event) => {
-      const p = event.payload
-      addActivity({
-        type: 'sniper',
-        title: `Sniped ${p.symbol}`,
-        description: `$${p.buyAmountUsd.toFixed(2)} at $${p.price.toFixed(8)}`,
-        timestamp: Date.now(),
-      })
-    }).then((u) => unlisteners.push(u))
-
-    listen<HarvesterClaimedEvent>('harvester-claimed', (event) => {
-      const p = event.payload
-      addActivity({
-        type: 'harvester',
-        title: `Reward Claimed — ${p.username}`,
-        description: `$${p.rewardAmount.toFixed(2)} (streak: ${p.loginStreak})`,
-        timestamp: Date.now(),
-      })
-    }).then((u) => unlisteners.push(u))
-
-    listen<TradeExecutedEvent>('trade-executed', (event) => {
-      const p = event.payload
-      addActivity({
-        type: 'trade',
-        title: `${p.tradeType} ${p.symbol}`,
-        description: p.success ? `$${p.amount.toFixed(2)} @ $${p.newPrice.toFixed(8)}` : `Failed: ${p.error}`,
-        timestamp: Date.now(),
-      })
+    listen<DipBuyerTickEvent>('dipbuyer-tick', (event) => {
+      setDipbuyerEnabled(event.payload.enabled)
+      setDipbuyerTotal(event.payload.totalBought)
     }).then((u) => unlisteners.push(u))
 
     return () => {
       unlisteners.forEach((u) => u())
     }
-  }, [addActivity])
+  }, [])
 
   const pnl = summary?.totalProfitLoss ?? 0
   const pnlPct = summary?.totalProfitLossPct ?? 0
@@ -241,7 +210,7 @@ export function DashboardHome({
       </div>
 
       {/* Module Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <ModuleStatusCard
           title="Sentinel"
           icon={<Shield className="w-5 h-5" />}
@@ -273,6 +242,16 @@ export function DashboardHome({
             { label: 'Mirrored', value: mirrorTotal.toString() },
           ]}
           onClick={onViewMirror}
+        />
+        <ModuleStatusCard
+          title="Dip Buyer"
+          icon={<TrendingDown className="w-5 h-5" />}
+          status={dipbuyerEnabled ? 'active' : 'off'}
+          statusText={dipbuyerEnabled ? 'Hunting' : 'Off'}
+          stats={[
+            { label: 'Bought', value: dipbuyerTotal.toString() },
+          ]}
+          onClick={onViewDipBuyer}
         />
       </div>
 
@@ -363,12 +342,13 @@ export function DashboardHome({
       {/* Quick Actions */}
       <div className="card">
         <h2 className="text-lg font-bold mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <QuickAction onClick={onViewPortfolio} icon={<Wallet className="w-5 h-5 text-blue-400" />} title="Portfolio" />
           <QuickAction onClick={onViewMarket} icon={<Store className="w-5 h-5 text-purple-400" />} title="Market" />
           <QuickAction onClick={onViewSniper} icon={<Crosshair className="w-5 h-5 text-amber-400" />} title="Sniper" />
           <QuickAction onClick={onViewSentinel} icon={<Shield className="w-5 h-5 text-emerald-400" />} title="Sentinel" />
           <QuickAction onClick={onViewMirror} icon={<Users className="w-5 h-5 text-cyan-400" />} title="Mirror" />
+          <QuickAction onClick={onViewDipBuyer} icon={<TrendingDown className="w-5 h-5 text-purple-400" />} title="Dip Buyer" />
         </div>
       </div>
     </div>

@@ -15,7 +15,10 @@
 - [Sniper Bot](#sniper-bot)
 - [Sentinel (Stop-Loss / Take-Profit)](#sentinel)
 - [Mirror Trading](#mirror-trading)
+- [Dip Buyer](#dip-buyer)
 - [Harvester (Auto-Claim)](#harvester)
+- [Automation Log](#automation-log)
+- [User Profiles & Leaderboard](#user-profiles--leaderboard)
 - [Mobile Remote Access](#mobile-remote-access)
 - [Settings](#settings)
 
@@ -224,6 +227,106 @@ Mirror Trading lets you automatically copy the trades of other Rugplay users. Fi
 
 ---
 
+## Dip Buyer
+
+The Dip Buyer automatically monitors the live trade feed for large sell-offs and buys dips on liquid coins when conditions are right. It uses a multi-signal confidence scoring engine to decide whether a sell-off is a buying opportunity or a red flag.
+
+### How It Works
+
+1. Polls recent trades every N seconds (configurable)
+2. Filters for SELL trades exceeding the minimum sell-value threshold
+3. Fetches coin data — market cap, volume, 24h change, holder distribution
+4. Resolves **Coin Tier** settings based on market cap (if tiers enabled)
+5. Applies hard gates: volume, market cap range, price drop limit, tier-specific sell minimum
+6. Runs the **Signal Analysis Engine** — scores four weighted signals to produce a confidence score
+7. Rejects if confidence is below threshold or any signal triggers a hard reject (whale dump, extreme concentration, excessive slippage)
+8. Scales buy amount by confidence (optional), submits BUY via trade executor
+9. Optionally auto-creates a sentinel (SL/TP) on the purchased coin
+
+### Signal Analysis Engine
+
+Every potential dip buy is scored by four weighted signals:
+
+| Signal             | What It Measures                                     | Hard Reject?                   |
+| ------------------ | ---------------------------------------------------- | ------------------------------ |
+| **Sell Impact**    | How much the sell affects the coin's market cap      | Yes — if sell > 50% of mcap    |
+| **Holder Safety**  | Distribution of holdings among top holders           | Yes — if top holder owns > 80% |
+| **Momentum**       | Recent price trend via candlestick data              | No                             |
+| **Volume Quality** | Whether 24h volume is healthy relative to market cap | No                             |
+
+Each signal produces a raw score (0-1), which is multiplied by its configurable weight. The four weighted scores are summed to produce a final **confidence score** (0-1). Buys only execute when confidence exceeds the threshold (default: 0.55-0.65 depending on preset).
+
+Slippage is also estimated — if buying the configured amount would move the price beyond the max slippage percentage, the trade is hard-rejected.
+
+### Coin Tiers
+
+Instead of applying the same buy amount and filters to every coin, you can define **Coin Tiers** based on market cap ranges. Each tier can have its own:
+
+| Per-Tier Setting       | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| **Buy Amount**         | USD to spend when buying coins in this mcap range          |
+| **Min Sell Value**     | Minimum sell trade value to trigger analysis for this tier |
+| **Min Volume (24h)**   | Minimum 24h volume required for coins in this tier         |
+| **Max Buy Slippage %** | Maximum acceptable price impact for this tier              |
+
+When a per-tier value is set to 0, the global setting is used as a fallback. This lets you be strict with micro-caps (small buys, high volume requirements) while being more flexible with established coins.
+
+Example tier setup:
+
+| Tier   | Market Cap Range | Buy Amount | Min Sell | Min Volume | Max Slippage |
+| ------ | ---------------- | ---------- | -------- | ---------- | ------------ |
+| Micro  | $0 – $25K        | $200       | $1,000   | $3,000     | 5%           |
+| Small  | $25K – $100K     | $500       | $2,000   | $5,000     | 0 (global)   |
+| Medium | $100K – $500K    | $1,000     | $5,000   | $10,000    | 0 (global)   |
+| Large  | $500K+           | $1,500     | $10,000  | $25,000    | 0 (global)   |
+
+### Aggressiveness Presets
+
+| Setting             | Conservative | Moderate  | Aggressive |
+| ------------------- | ------------ | --------- | ---------- |
+| Buy amount          | $500         | $1,000    | $2,000     |
+| Min sell value      | $5,000       | $2,000    | $1,000     |
+| Min volume (24h)    | $10,000      | $5,000    | $2,000     |
+| Min market cap      | $50,000      | $20,000   | $10,000    |
+| Max drop %          | -30%         | -50%      | -70%       |
+| Min confidence      | 65%          | 55%       | 45%        |
+| Max slippage        | 3%           | 5%        | 10%        |
+| Daily limit         | 5            | 10        | 20         |
+| Cooldown            | 300s         | 180s      | 60s        |
+| Scale by confidence | Yes          | Yes       | No         |
+| Auto sentinel       | Yes          | Yes       | Yes        |
+| SL/TP               | -15%/+50%    | -20%/+80% | -25%/+150% |
+| Trailing stop       | 10%          | 12%       | 15%        |
+
+Each preset also includes a default set of four Coin Tiers. Tiers are disabled by default but can be toggled on from the Strategy tab.
+
+### Configuration
+
+| Setting                 | Description                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| **Preset**              | Conservative, Moderate, or Aggressive (auto-fills all settings)                 |
+| **Coin Tiers**          | Toggle per-tier buy sizing, sell thresholds, volume & slippage                  |
+| **Buy Amount**          | Fallback USD amount when tiers are off or no tier matches                       |
+| **Min Sell Value**      | Global minimum sell trade value (pre-filter before analysis)                    |
+| **Min Confidence**      | Minimum signal score to allow a buy (0.0 – 1.0)                                 |
+| **Max Slippage %**      | Maximum acceptable price impact from your buy                                   |
+| **Signal Weights**      | Per-signal weight tuning (sell impact, holder safety, momentum, volume quality) |
+| **Scale by Confidence** | Reduce buy amount proportionally when confidence is lower                       |
+| **Skip Top N**          | Ignore sells from the top N holders                                             |
+| **Cooldown Per Coin**   | Seconds to wait before re-buying the same coin                                  |
+| **Daily Buy Limit**     | Maximum dip buys per 24-hour rolling window                                     |
+| **Daily Spend Limit**   | Maximum USD spent on dip buys per day                                           |
+| **Portfolio Aware**     | Check position size before buying to avoid over-concentration                   |
+| **Max Position %**      | Maximum portfolio percentage any single coin can reach                          |
+| **Auto Sentinel**       | Automatically create SL/TP/trailing stop on each dip buy                        |
+| **Coin Blacklist**      | Per-symbol blocklist to exclude specific coins                                  |
+
+### Restart Safety
+
+The Dip Buyer persists its state across restarts. On startup it restores cooldowns, daily buy counts, and seen trade keys from the automation log and a persisted tick timestamp, preventing duplicate purchases.
+
+---
+
 ## Harvester
 
 The Harvester automatically claims your 12-hour Rugplay reward. Never miss a claim cycle again.
@@ -241,13 +344,74 @@ The Harvester runs automatically once enabled — no additional configuration ne
 
 ---
 
+## Automation Log
+
+The Automation Log provides a centralized, persistent record of every automated action taken by any module.
+
+### What Gets Logged
+
+| Module    | Action   | Details                                |
+| --------- | -------- | -------------------------------------- |
+| Sniper    | BUY      | Symbol, amount, price, trigger info    |
+| Sentinel  | SELL     | Symbol, trigger type (SL/TP/TS), price |
+| Mirror    | BUY/SELL | Symbol, whale username, scaled amount  |
+| Harvester | CLAIM    | Reward amount claimed                  |
+| Dip Buyer | BUY      | Symbol, seller info, preset used       |
+
+### Features
+
+- **Module filter buttons** — View all logs or filter by specific module
+- **Persistent storage** — All entries stored in SQLite, survive restarts
+- **Live updates** — New entries appear in real time via Tauri events
+- **JSON details** — Each entry includes a details blob with module-specific metadata
+
+---
+
+## User Profiles & Leaderboard
+
+### User Profiles
+
+Click any username in the Live Feed, holder list, or leaderboard to view their full profile:
+
+- Avatar, username, name, bio
+- Balance, portfolio value, holdings count, total volume
+- 24h activity breakdown (transactions, buy/sell volume)
+- Local reputation score (0-100) with color-coded trust badge
+- Created coins list (clickable — navigates to coin detail)
+- Recent transactions
+- "Report Rug" button and external Rugplay link
+
+### Leaderboard
+
+Four category tabs pulled from the Rugplay API:
+
+| Tab                    | Ranks by                    |
+| ---------------------- | --------------------------- |
+| **Top Rugpullers**     | Most value extracted        |
+| **Biggest Losers**     | Largest trading losses      |
+| **Cash Kings**         | Highest liquid cash balance |
+| **Paper Millionaires** | Richest total portfolio     |
+
+Features: player search, gold/silver/bronze rank medals, inline reputation badges, clickable rows navigate to user profiles.
+
+### Reputation System
+
+Locally tracked trust score per user, persisted in SQLite:
+
+- Base score: 50/100 for new users
+- Rug pull report: -15 points
+- Rugpuller leaderboard appearance: -5 points
+- Visual: green (70+), yellow (40-69), red (<40)
+
+---
+
 ## Mobile Remote Access
 
 <div align="center">
 <img src="../DemoImages/Mobile.png" alt="Mobile Access" width="85%" />
 </div>
 
-Access your bot from any device — phone, tablet, or another computer — via a secure tunnel.
+Access your bot from any device — phone, tablet, or another computer — via a secure Cloudflare tunnel.
 
 ### How It Works
 
@@ -260,9 +424,22 @@ Access your bot from any device — phone, tablet, or another computer — via a
 
 - The connection uses a PIN-based authentication system
 - Each session generates a unique access token
-- The tunnel is created through `bore.pub` — an open-source tunneling service
+- The tunnel is created through Cloudflare Quick Tunnels (`trycloudflare.com`) — HTTPS by default
+- `cloudflared` is auto-downloaded on first use and cached in app data
 - No data is stored on any external server
 - You can disconnect all sessions from the desktop app at any time
+
+### Role-Based Access
+
+Three session roles control what each connected device can do:
+
+| Role        | Access                                   |
+| ----------- | ---------------------------------------- |
+| **Viewer**  | Portfolio, module status (read-only)     |
+| **Trusted** | + Sentinels, sniper status, activity log |
+| **Admin**   | + Buy/sell trading                       |
+
+You can change a session's role, kick sessions, and set the default role for new connections from the desktop app.
 
 ### What You Can See on Mobile
 

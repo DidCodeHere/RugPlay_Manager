@@ -184,6 +184,23 @@ export interface Holder {
 }
 
 // ============================================================================
+// Coin Comment Types
+// ============================================================================
+
+export interface CoinComment {
+  id: number
+  content: string
+  userId: number
+  userUsername: string
+  userName: string | null
+  userImage: string | null
+  likesCount: number
+  isLikedByUser: boolean
+  createdAt: string
+  updatedAt: string | null
+}
+
+// ============================================================================
 // Sentinel Types
 // ============================================================================
 
@@ -361,6 +378,7 @@ export interface SniperConfig {
   minLiquidityUsd: number
   maxDailySpendUsd: number
   pollIntervalSecs: number
+  minCoinAgeSecs: number
 }
 
 export interface SniperStatusResponse {
@@ -405,4 +423,190 @@ export interface NotificationConfig {
   riskAlerts: boolean
   sessionAlerts: boolean
   tradeConfirmations: boolean
+}
+
+// ============================================================================
+// Dip Buyer Types
+// ============================================================================
+
+export type Aggressiveness = 'conservative' | 'moderate' | 'aggressive'
+
+export interface CoinTier {
+  label: string
+  minMcap: number
+  maxMcap: number
+  buyAmountUsd: number
+  minSellValueUsd: number
+  minVolume24h: number
+  maxBuySlippagePct: number
+}
+
+export interface SignalWeights {
+  sellImpact: number
+  holderSafety: number
+  momentum: number
+  volumeQuality: number
+}
+
+export interface DipBuyerConfig {
+  preset: Aggressiveness
+  buyAmountUsd: number
+  coinTiers: CoinTier[]
+  useCoinTiers: boolean
+  minSellValueUsd: number
+  minVolume24h: number
+  minMarketCap: number
+  maxMarketCap: number
+  skipTopNHolders: number
+  maxPriceDropPct: number
+  pollIntervalSecs: number
+  cooldownPerCoinSecs: number
+  maxDailyBuys: number
+  maxDailySpendUsd: number
+  autoCreateSentinel: boolean
+  stopLossPct: number
+  takeProfitPct: number
+  trailingStopPct: number | null
+  blacklistedCoins: string[]
+  minConfidenceScore: number
+  maxBuySlippagePct: number
+  useMomentumAnalysis: boolean
+  signalWeights: SignalWeights
+  scaleByConfidence: boolean
+  maxPositionPct: number
+  portfolioAware: boolean
+}
+
+export interface DipBuyerStatusResponse {
+  enabled: boolean
+  config: DipBuyerConfig
+  totalBought: number
+  lastBoughtAt: string | null
+}
+
+export interface DipBuyerTriggeredEvent {
+  symbol: string
+  coinName: string
+  buyAmountUsd: number
+  sellerUsername: string
+  sellValueUsd: number
+  sellerRank: number | null
+  marketCap: number
+  price: number
+  change24h: number
+  confidenceScore: number
+  slippagePct: number
+  sellImpactPct: number
+}
+
+export interface DipBuyerTickEvent {
+  enabled: boolean
+  totalBought: number
+  lastBoughtAt: string | null
+  tradesScanned: number
+  dipsDetected: number
+}
+
+export interface DipBuyerLogEntry {
+  id: number
+  symbol: string
+  coinName: string
+  action: string
+  amountUsd: number
+  details: string
+  createdAt: string | null
+}
+
+// ============================================================================
+// Automation Log Types
+// ============================================================================
+
+export interface AutomationLogEntry {
+  id: number
+  module: string
+  symbol: string
+  coinName: string
+  action: string
+  amountUsd: number
+  details: string
+  createdAt: string | null
+}
+
+// ============================================================================
+// User Profile Types (Public)
+// ============================================================================
+
+export interface UserProfileFullResponse {
+  userId: string
+  username: string
+  name: string
+  bio: string | null
+  image: string | null
+  balance: number
+  holdingsCount: number
+  holdingsValue: number
+  totalPortfolioValue: number
+  totalBuyVolume: number
+  totalSellVolume: number
+  totalTransactions: number
+  transactions24h: number
+  buyVolume24h: number
+  sellVolume24h: number
+  coinsCreated: number
+  createdCoins: UserCreatedCoin[]
+  recentTransactions: UserTransaction[]
+  reputation: ReputationInfo | null
+}
+
+export interface UserCreatedCoin {
+  symbol: string
+  name: string
+  icon: string | null
+  currentPrice: number
+  marketCap: number
+  volume24h: number
+  change24h: number
+}
+
+export interface UserTransaction {
+  id: number
+  tradeType: string
+  coinSymbol: string
+  coinName: string
+  coinIcon: string | null
+  quantity: number
+  pricePerCoin: number
+  totalValue: number
+  timestamp: string
+}
+
+export interface ReputationInfo {
+  score: number
+  rugPulls: number
+  leaderboardAppearances: number
+  totalExtracted: number
+  lastUpdated: string | null
+}
+
+// ============================================================================
+// Leaderboard Types
+// ============================================================================
+
+export interface LeaderboardFullResponse {
+  topRugpullers: LeaderboardUser[]
+  biggestLosers: LeaderboardUser[]
+  cashKings: LeaderboardUser[]
+  paperMillionaires: LeaderboardUser[]
+}
+
+export interface LeaderboardUser {
+  rank: number
+  userId: string
+  username: string
+  name: string
+  image: string | null
+  primaryValue: number
+  secondaryValue: number
+  label: string
+  reputationScore: number | null
 }

@@ -11,10 +11,13 @@ import {
   Settings,
   Smartphone,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  TrendingDown,
+  ScrollText,
+  Trophy,
 } from 'lucide-react'
 
-export type NavItemId = 'dashboard' | 'portfolio' | 'market' | 'feed' | 'history' | 'sentinel' | 'sniper' | 'mirror' | 'mobile' | 'settings'
+export type NavItemId = 'dashboard' | 'portfolio' | 'market' | 'feed' | 'history' | 'leaderboard' | 'sentinel' | 'sniper' | 'mirror' | 'dipbuyer' | 'automation' | 'mobile' | 'settings'
 
 interface NavItem {
   id: NavItemId
@@ -29,9 +32,12 @@ const navItems: NavItem[] = [
   { id: 'market', label: 'Market', icon: <Store className="w-5 h-5" /> },
   { id: 'feed', label: 'Live Feed', icon: <Activity className="w-5 h-5" /> },
   { id: 'history', label: 'History', icon: <FileText className="w-5 h-5" /> },
+  { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="w-5 h-5" /> },
   { id: 'sentinel', label: 'Sentinel', icon: <Shield className="w-5 h-5" /> },
   { id: 'sniper', label: 'Sniper', icon: <Crosshair className="w-5 h-5" /> },
   { id: 'mirror', label: 'Mirror', icon: <Users className="w-5 h-5" /> },
+  { id: 'dipbuyer', label: 'Dip Buyer', icon: <TrendingDown className="w-5 h-5" /> },
+  { id: 'automation', label: 'Automation', icon: <ScrollText className="w-5 h-5" /> },
   { id: 'mobile', label: 'Mobile', icon: <Smartphone className="w-5 h-5" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
 ]

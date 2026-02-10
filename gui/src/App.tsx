@@ -1,10 +1,20 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { ProfileSelect } from './components/auth/ProfileSelect'
 import { AddProfile } from './components/auth/AddProfile'
 import { TokenExpired } from './components/auth/TokenExpired'
 import { Dashboard } from './components/layout/Dashboard'
-import type { ProfileSummary, UserProfile, LoginResult } from './lib/types'
+import { activityStore } from './lib/activityStore'
+import type {
+  ProfileSummary,
+  UserProfile,
+  LoginResult,
+  SniperTriggeredEvent,
+  HarvesterClaimedEvent,
+  TradeExecutedEvent,
+  DipBuyerTriggeredEvent,
+} from './lib/types'
 
 type AppScreen = 
   | { type: 'loading' }
@@ -21,6 +31,71 @@ function App() {
   useEffect(() => {
     console.log('[App] Screen changed:', screen.type, screen)
   }, [screen])
+
+  // Global event listeners — registered once at app startup so activities
+  // and snipe log entries are captured even when dashboard/sniper tabs
+  // are not mounted.
+  useEffect(() => {
+    const unlisteners: (() => void)[] = []
+
+    listen<{ sentinelId: number; symbol: string; reason: string; triggerType: string }>(
+      'sentinel-triggered',
+      (event) => {
+        const p = event.payload
+        activityStore.addActivity({
+          type: 'sentinel',
+          title: `Sentinel ${p.triggerType === 'stop_loss' ? 'SL' : p.triggerType === 'take_profit' ? 'TP' : 'TS'} — ${p.symbol}`,
+          description: p.reason,
+          timestamp: Date.now(),
+        })
+      }
+    ).then((u) => unlisteners.push(u))
+
+    listen<SniperTriggeredEvent>('sniper-triggered', (event) => {
+      const p = event.payload
+      activityStore.addActivity({
+        type: 'sniper',
+        title: `Sniped ${p.symbol}`,
+        description: `$${p.buyAmountUsd.toFixed(2)} at $${p.price.toFixed(8)}`,
+        timestamp: Date.now(),
+      })
+      activityStore.addSnipe(p)
+    }).then((u) => unlisteners.push(u))
+
+    listen<HarvesterClaimedEvent>('harvester-claimed', (event) => {
+      const p = event.payload
+      activityStore.addActivity({
+        type: 'harvester',
+        title: `Reward Claimed — ${p.username}`,
+        description: `$${p.rewardAmount.toFixed(2)} (streak: ${p.loginStreak})`,
+        timestamp: Date.now(),
+      })
+    }).then((u) => unlisteners.push(u))
+
+    listen<TradeExecutedEvent>('trade-executed', (event) => {
+      const p = event.payload
+      activityStore.addActivity({
+        type: 'trade',
+        title: `${p.tradeType} ${p.symbol}`,
+        description: p.success ? `$${p.amount.toFixed(2)} @ $${p.newPrice.toFixed(8)}` : `Failed: ${p.error}`,
+        timestamp: Date.now(),
+      })
+    }).then((u) => unlisteners.push(u))
+
+    listen<DipBuyerTriggeredEvent>('dipbuyer-triggered', (event) => {
+      const p = event.payload
+      activityStore.addActivity({
+        type: 'dipbuyer',
+        title: `Dip Buy ${p.symbol}`,
+        description: `$${p.buyAmountUsd.toFixed(2)} — @${p.sellerUsername} sold $${p.sellValueUsd.toFixed(0)}`,
+        timestamp: Date.now(),
+      })
+    }).then((u) => unlisteners.push(u))
+
+    return () => {
+      unlisteners.forEach((u) => u())
+    }
+  }, [])
 
   // Load profiles on startup
   useEffect(() => {

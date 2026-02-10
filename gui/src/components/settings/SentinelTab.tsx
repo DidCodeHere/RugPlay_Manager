@@ -11,6 +11,7 @@ import {
   Clock,
 } from 'lucide-react'
 import type { AppSettings, SentinelDefaults } from '@/lib/types'
+import { ToggleSwitch } from '@/components/ui/FormattedInput'
 import type { SentinelMonitorStatus } from './SettingsLayout'
 
 interface SentinelTabProps {
@@ -66,8 +67,8 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
 
         <div className="grid grid-cols-2 gap-4">
           {/* Stop Loss */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+            <div className="form-field">
+            <label className="form-label">
               <TrendingDown className="w-4 h-4 text-rose-400" />
               Default Stop Loss
             </label>
@@ -78,18 +79,16 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
                 max="100"
                 value={settings.sentinelDefaults.stopLossPct}
                 onChange={e => updateDefault('stopLossPct', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
-              <Percent className="w-4 h-4 text-foreground-muted" />
+              <Percent className="w-4 h-4 text-zinc-500" />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
-              Sell when price drops this % below entry
-            </p>
+            <p className="form-hint">Sell when price drops this % below entry</p>
           </div>
 
           {/* Take Profit */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <TrendingUp className="w-4 h-4 text-emerald-400" />
               Default Take Profit
             </label>
@@ -100,18 +99,16 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
                 max="10000"
                 value={settings.sentinelDefaults.takeProfitPct}
                 onChange={e => updateDefault('takeProfitPct', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
-              <Percent className="w-4 h-4 text-foreground-muted" />
+              <Percent className="w-4 h-4 text-zinc-500" />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
-              Sell when price rises this % above entry
-            </p>
+            <p className="form-hint">Sell when price rises this % above entry</p>
           </div>
 
           {/* Trailing Stop */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <AlertTriangle className="w-4 h-4 text-amber-400" />
               Default Trailing Stop
             </label>
@@ -125,18 +122,16 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
                   updateDefault('trailingStopPct', e.target.value ? parseFloat(e.target.value) : null)
                 }
                 placeholder="Disabled"
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
-              <Percent className="w-4 h-4 text-foreground-muted" />
+              <Percent className="w-4 h-4 text-zinc-500" />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
-              Tracks highest price, sells on drop (leave empty to disable)
-            </p>
+            <p className="form-hint">Tracks highest price, sells on drop (leave empty to disable)</p>
           </div>
 
           {/* Sell Percentage */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Percent className="w-4 h-4 text-blue-400" />
               Default Sell Amount
             </label>
@@ -147,13 +142,11 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
                 max="100"
                 value={settings.sentinelDefaults.sellPercentage}
                 onChange={e => updateDefault('sellPercentage', parseFloat(e.target.value) || 100)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
-              <Percent className="w-4 h-4 text-foreground-muted" />
+              <Percent className="w-4 h-4 text-zinc-500" />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
-              Percentage of holding to sell when triggered
-            </p>
+            <p className="form-hint">Percentage of holding to sell when triggered</p>
           </div>
         </div>
       </div>
@@ -215,21 +208,13 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
               Automatically create sentinels for holdings when activity is detected in live feed
             </p>
           </div>
-          <button
-            onClick={() => {
+          <ToggleSwitch
+            enabled={settings.autoManageSentinels}
+            onChange={() => {
               setSettings(prev => ({ ...prev, autoManageSentinels: !prev.autoManageSentinels }))
               onChanged()
             }}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              settings.autoManageSentinels ? 'bg-emerald-600' : 'bg-zinc-600'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                settings.autoManageSentinels ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+          />
         </div>
       </div>
 
@@ -249,7 +234,7 @@ export function SentinelTab({ settings, setSettings, monitor, setMonitor, onChan
             value={newBlacklistCoin}
             onChange={e => setNewBlacklistCoin(e.target.value.toUpperCase())}
             placeholder="Enter coin symbol (e.g., PEPE)"
-            className="flex-1 px-3 py-2 rounded-lg bg-background border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+            className="input flex-1"
             onKeyDown={e => {
               if (e.key === 'Enter') addBlacklistCoin()
             }}

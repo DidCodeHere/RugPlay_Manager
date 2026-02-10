@@ -218,7 +218,7 @@ impl NotificationHandle {
 
     // ─── Internal ────────────────────────────────────────────────
 
-    /// Send a native notification
+    /// Send a native notification (internal use)
     fn send(&self, title: &str, body: &str) {
         debug!("Notification: {} — {}", title, body);
 
@@ -232,6 +232,16 @@ impl NotificationHandle {
         {
             warn!("Failed to send notification: {}", e);
         }
+    }
+
+    /// Send a raw notification — used by modules that manage their own checks
+    pub async fn send_raw(&self, title: &str, body: &str) {
+        let cfg = self.config.read().await;
+        if !cfg.enabled {
+            return;
+        }
+        drop(cfg);
+        self.send(title, body);
     }
 }
 

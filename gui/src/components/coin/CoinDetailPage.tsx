@@ -13,15 +13,24 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  MessageCircle,
+  Send,
+  Shield,
+  AlertTriangle,
+  Activity,
+  Droplets,
+  Eye,
+  Heart,
 } from 'lucide-react'
 import { buildImageUrl } from '@/lib/utils'
-import type { CoinWithChartResponse, CoinHoldersResponse, TradeResult, Holder, CoinHolding } from '@/lib/types'
+import type { CoinWithChartResponse, CoinHoldersResponse, TradeResult, Holder, CoinHolding, CoinComment } from '@/lib/types'
 
 interface CoinDetailPageProps {
   symbol: string
   onBack: () => void
   onTradeComplete?: () => void
   holdings?: CoinHolding[]
+  onUserClick?: (userId: string) => void
 }
 
 type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
@@ -35,16 +44,23 @@ const TIMEFRAMES: { value: Timeframe; label: string }[] = [
   { value: '1d', label: '1D' },
 ]
 
-export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] }: CoinDetailPageProps) {
+export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [], onUserClick }: CoinDetailPageProps) {
   const [data, setData] = useState<CoinWithChartResponse | null>(null)
   const [holders, setHolders] = useState<CoinHoldersResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [timeframe, setTimeframe] = useState<Timeframe>('1m')
+  const [comments, setComments] = useState<CoinComment[]>([])
+  const [commentText, setCommentText] = useState('')
+  const [postingComment, setPostingComment] = useState(false)
+  const [activeTab, setActiveTab] = useState<'analysis' | 'holders' | 'pool'>('analysis')
+  const [livePrice, setLivePrice] = useState<number | null>(null)
 
-  const fetchCoinData = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  const fetchCoinData = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
 
     try {
       const result = await invoke<CoinWithChartResponse>('get_coin_with_chart', {
@@ -52,11 +68,12 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
         timeframe,
       })
       setData(result)
+      setLivePrice(result.coin.currentPrice)
     } catch (e) {
       console.error('Failed to fetch coin data:', e)
-      setError(String(e))
+      if (!silent) setError(String(e))
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [symbol, timeframe])
 
@@ -76,6 +93,119 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
     fetchCoinData()
     fetchHolders()
   }, [fetchCoinData, fetchHolders])
+
+  // Auto-refresh price every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => fetchCoinData(true), 10_000)
+    return () => clearInterval(interval)
+  }, [fetchCoinData])
+
+  const fetchComments = useCallback(async () => {
+    try {
+      const result = await invoke<CoinComment[]>('get_coin_comments', { symbol })
+      setComments(result)
+    } catch (e) {
+      console.error('Failed to fetch comments:', e)
+    }
+  }, [symbol])
+
+  useEffect(() => {
+    fetchComments()
+  }, [fetchComments])
+
+  const handlePostComment = async () => {
+    const trimmed = commentText.trim()
+    if (!trimmed || postingComment) return
+    setPostingComment(true)
+    try {
+      const newComment = await invoke<CoinComment>('post_coin_comment', { symbol, content: trimmed })
+      setComments(prev => [newComment, ...prev])
+      setCommentText('')
+    } catch (e) {
+      console.error('Failed to post comment:', e)
+    } finally {
+      setPostingComment(false)
+    }
+  }
+
+  // Computed analysis from existing data
+  const analysis = useMemo(() => {
+    if (!data || !holders) return null
+    const { coin } = data
+    const mcap = coin.marketCap
+    const vol = coin.volume24h
+    const volRatio = mcap > 0 ? (vol / mcap) * 100 : 0
+
+    // Market cap tier
+    let mcapTier: string
+    let mcapColor: string
+    if (mcap >= 1_000_000) { mcapTier = 'Large Cap'; mcapColor = 'text-emerald-400' }
+    else if (mcap >= 100_000) { mcapTier = 'Mid Cap'; mcapColor = 'text-blue-400' }
+    else if (mcap >= 10_000) { mcapTier = 'Small Cap'; mcapColor = 'text-yellow-400' }
+    else { mcapTier = 'Micro Cap'; mcapColor = 'text-orange-400' }
+
+    // Volume health
+    let volHealth: string
+    let volColor: string
+    if (volRatio > 20) { volHealth = 'Very Active'; volColor = 'text-emerald-400' }
+    else if (volRatio > 5) { volHealth = 'Healthy'; volColor = 'text-blue-400' }
+    else if (volRatio > 1) { volHealth = 'Low'; volColor = 'text-yellow-400' }
+    else { volHealth = 'Dead'; volColor = 'text-red-400' }
+
+    // Holder concentration
+    const top3Pct = holders.holders.slice(0, 3).reduce((sum, h) => sum + h.percentage, 0)
+    const top10Pct = holders.holders.slice(0, 10).reduce((sum, h) => sum + h.percentage, 0)
+    let concRisk: string
+    let concColor: string
+    if (top3Pct > 60) { concRisk = 'Very High'; concColor = 'text-red-400' }
+    else if (top3Pct > 40) { concRisk = 'High'; concColor = 'text-orange-400' }
+    else if (top3Pct > 20) { concRisk = 'Moderate'; concColor = 'text-yellow-400' }
+    else { concRisk = 'Distributed'; concColor = 'text-emerald-400' }
+
+    // Liquidity depth
+    const poolUsd = coin.poolBaseCurrencyAmount
+    let liqLabel: string
+    let liqColor: string
+    if (poolUsd >= 100_000) { liqLabel = 'Deep'; liqColor = 'text-emerald-400' }
+    else if (poolUsd >= 10_000) { liqLabel = 'Good'; liqColor = 'text-blue-400' }
+    else if (poolUsd >= 1_000) { liqLabel = 'Thin'; liqColor = 'text-yellow-400' }
+    else { liqLabel = 'Dangerous'; liqColor = 'text-red-400' }
+
+    // Price momentum
+    const change = coin.change24h
+    let momentum: string
+    let momColor: string
+    if (change > 50) { momentum = 'Parabolic'; momColor = 'text-emerald-400' }
+    else if (change > 10) { momentum = 'Bullish'; momColor = 'text-emerald-400' }
+    else if (change > -10) { momentum = 'Neutral'; momColor = 'text-foreground-muted' }
+    else if (change > -30) { momentum = 'Bearish'; momColor = 'text-orange-400' }
+    else { momentum = 'Dumping'; momColor = 'text-red-400' }
+
+    // Overall risk score (0-100, lower = safer)
+    let riskScore = 0
+    if (top3Pct > 50) riskScore += 30
+    else if (top3Pct > 30) riskScore += 15
+    if (poolUsd < 1_000) riskScore += 25
+    else if (poolUsd < 10_000) riskScore += 10
+    if (volRatio < 1) riskScore += 15
+    if (change < -30) riskScore += 20
+    else if (change < -10) riskScore += 10
+    if (holders.totalHolders < 5) riskScore += 10
+
+    let riskLabel: string
+    let riskColor: string
+    if (riskScore >= 60) { riskLabel = 'High Risk'; riskColor = 'text-red-400' }
+    else if (riskScore >= 35) { riskLabel = 'Medium Risk'; riskColor = 'text-yellow-400' }
+    else { riskLabel = 'Lower Risk'; riskColor = 'text-emerald-400' }
+
+    return {
+      mcapTier, mcapColor, volHealth, volColor, volRatio,
+      top3Pct, top10Pct, concRisk, concColor,
+      liqLabel, liqColor, poolUsd,
+      momentum, momColor,
+      riskScore, riskLabel, riskColor,
+    }
+  }, [data, holders])
 
   const formatPrice = (price: number) => {
     if (price < 0.0001) return `$${price.toExponential(2)}`
@@ -111,7 +241,7 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
         </button>
         <div className="card text-center py-12">
           <p className="text-sell mb-4">{error || 'Failed to load coin data'}</p>
-          <button onClick={fetchCoinData} className="btn-primary">
+          <button onClick={() => fetchCoinData()} className="btn-primary">
             Try Again
           </button>
         </div>
@@ -123,12 +253,13 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
   const iconUrl = buildImageUrl(coin.icon)
   const isUp = coin.change24h > 0
   const isDown = coin.change24h < 0
+  const displayPrice = livePrice ?? coin.currentPrice
 
   // Find user's holding for this coin
   const userHolding = holdings.find(h => h.symbol.toLowerCase() === coin.symbol.toLowerCase())
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -140,7 +271,7 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
           </button>
 
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-background-tertiary flex items-center justify-center overflow-hidden">
+            <div className="w-12 h-12 rounded-full bg-background-tertiary flex items-center justify-center overflow-hidden ring-2 ring-background-tertiary">
               {iconUrl ? (
                 <img src={iconUrl} alt={coin.symbol} className="w-full h-full object-cover"
                   onError={(e) => { e.currentTarget.style.display = 'none' }} />
@@ -149,63 +280,93 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
               )}
             </div>
             <div>
-              <h1 className="text-2xl font-bold">${coin.symbol}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold">${coin.symbol}</h1>
+                {coin.isLocked && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400 text-xs">
+                    <Lock className="w-3 h-3" /> Locked
+                  </span>
+                )}
+                {analysis && (
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    analysis.riskScore >= 60 ? 'bg-red-500/20 text-red-400' :
+                    analysis.riskScore >= 35 ? 'bg-yellow-500/20 text-yellow-400' :
+                    'bg-emerald-500/20 text-emerald-400'
+                  }`}>
+                    {analysis.riskLabel}
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-foreground-muted">{coin.name}</p>
             </div>
           </div>
-
-          {coin.isLocked && (
-            <span className="flex items-center gap-1 px-2 py-1 rounded bg-yellow-500/20 text-yellow-400 text-xs">
-              <Lock className="w-3 h-3" /> Locked
-            </span>
-          )}
         </div>
 
-        <button
-          onClick={fetchCoinData}
-          disabled={loading}
-          className="p-2 rounded-lg hover:bg-background-tertiary transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="text-right mr-2 hidden sm:block">
+            <div className="text-2xl font-bold font-mono">{formatPrice(displayPrice)}</div>
+            <div className={`flex items-center justify-end gap-1 text-sm ${
+              isUp ? 'text-buy' : isDown ? 'text-sell' : 'text-foreground-muted'
+            }`}>
+              {isUp && <TrendingUp className="w-3 h-3" />}
+              {isDown && <TrendingDown className="w-3 h-3" />}
+              {isUp ? '+' : ''}{coin.change24h.toFixed(2)}%
+            </div>
+          </div>
+          <button
+            onClick={() => fetchCoinData()}
+            disabled={loading}
+            className="p-2 rounded-lg hover:bg-background-tertiary transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
-      {/* Price & Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card">
-          <div className="text-sm text-foreground-muted mb-1">Price</div>
-          <div className="text-2xl font-bold">{formatPrice(coin.currentPrice)}</div>
-          <div
-            className={`flex items-center gap-1 text-sm ${
-              isUp ? 'text-buy' : isDown ? 'text-sell' : 'text-foreground-muted'
-            }`}
-          >
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="card p-3">
+          <div className="text-xs text-foreground-muted mb-1">Price</div>
+          <div className="text-lg font-bold font-mono">{formatPrice(displayPrice)}</div>
+          <div className={`flex items-center gap-1 text-xs ${
+            isUp ? 'text-buy' : isDown ? 'text-sell' : 'text-foreground-muted'
+          }`}>
             {isUp && <TrendingUp className="w-3 h-3" />}
             {isDown && <TrendingDown className="w-3 h-3" />}
-            {isUp ? '+' : ''}
-            {coin.change24h.toFixed(2)}%
+            {isUp ? '+' : ''}{coin.change24h.toFixed(2)}%
           </div>
         </div>
 
-        <div className="card">
-          <div className="flex items-center gap-1 text-sm text-foreground-muted mb-1">
+        <div className="card p-3">
+          <div className="flex items-center gap-1 text-xs text-foreground-muted mb-1">
             <DollarSign className="w-3 h-3" /> Market Cap
           </div>
-          <div className="text-xl font-bold">${formatNumber(coin.marketCap)}</div>
+          <div className="text-lg font-bold">${formatNumber(coin.marketCap)}</div>
+          {analysis && <div className={`text-xs ${analysis.mcapColor}`}>{analysis.mcapTier}</div>}
         </div>
 
-        <div className="card">
-          <div className="flex items-center gap-1 text-sm text-foreground-muted mb-1">
+        <div className="card p-3">
+          <div className="flex items-center gap-1 text-xs text-foreground-muted mb-1">
             <BarChart3 className="w-3 h-3" /> Volume 24h
           </div>
-          <div className="text-xl font-bold">${formatNumber(coin.volume24h)}</div>
+          <div className="text-lg font-bold">${formatNumber(coin.volume24h)}</div>
+          {analysis && <div className={`text-xs ${analysis.volColor}`}>{analysis.volHealth} ({analysis.volRatio.toFixed(1)}%)</div>}
         </div>
 
-        <div className="card">
-          <div className="flex items-center gap-1 text-sm text-foreground-muted mb-1">
+        <div className="card p-3">
+          <div className="flex items-center gap-1 text-xs text-foreground-muted mb-1">
+            <Droplets className="w-3 h-3" /> Liquidity
+          </div>
+          <div className="text-lg font-bold">${formatNumber(coin.poolBaseCurrencyAmount)}</div>
+          {analysis && <div className={`text-xs ${analysis.liqColor}`}>{analysis.liqLabel}</div>}
+        </div>
+
+        <div className="card p-3">
+          <div className="flex items-center gap-1 text-xs text-foreground-muted mb-1">
             <Users className="w-3 h-3" /> Holders
           </div>
-          <div className="text-xl font-bold">{holders?.totalHolders ?? '...'}</div>
+          <div className="text-lg font-bold">{holders?.totalHolders ?? '...'}</div>
+          {analysis && <div className={`text-xs ${analysis.concColor}`}>Top 3: {analysis.top3Pct.toFixed(1)}%</div>}
         </div>
       </div>
 
@@ -222,7 +383,7 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
                   onClick={() => setTimeframe(tf.value)}
                   className={`px-3 py-1 rounded text-sm transition-colors ${
                     timeframe === tf.value
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-emerald-600 text-white'
                       : 'text-foreground-muted hover:text-foreground'
                   }`}
                 >
@@ -234,7 +395,7 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
           <InteractiveChart
             candlestickData={candlestickData}
             volumeData={volumeData || []}
-            currentPrice={coin.currentPrice}
+            currentPrice={displayPrice}
             formatPrice={formatPrice}
           />
         </div>
@@ -243,7 +404,6 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Trade</h2>
           
-          {/* Show user holdings if they own this coin */}
           {userHolding && (
             <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 mb-4">
               <div className="flex items-center gap-2 mb-1">
@@ -252,8 +412,12 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
               </div>
               <div className="text-lg font-bold font-mono">{userHolding.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 })} coins</div>
               <div className="flex items-center justify-between text-sm mt-1">
-                <span className="text-foreground-muted">Value</span>
-                <span className="font-mono">${userHolding.value.toFixed(2)}</span>
+                <span className="text-foreground-muted">Live Value</span>
+                <span className="font-mono">${(userHolding.quantity * displayPrice).toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-foreground-muted">Avg Entry</span>
+                <span className="font-mono">{formatPrice(userHolding.avgPurchasePrice)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-foreground-muted">P/L</span>
@@ -266,7 +430,7 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
           
           <SimpleTrade
             symbol={coin.symbol}
-            currentPrice={coin.currentPrice}
+            currentPrice={displayPrice}
             userQuantity={userHolding?.quantity}
             onTradeComplete={() => {
               fetchCoinData()
@@ -276,51 +440,259 @@ export function CoinDetailPage({ symbol, onBack, onTradeComplete, holdings = [] 
         </div>
       </div>
 
-      {/* Pool Info & Holders */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Pool Info */}
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-4">Pool Information</h2>
+      {/* Analysis / Holders / Pool — Tabbed */}
+      <div className="card">
+        <div className="flex items-center gap-1 border-b border-background-tertiary mb-4">
+          {([
+            { key: 'analysis' as const, label: 'Analysis', icon: <Activity className="w-3.5 h-3.5" /> },
+            { key: 'holders' as const, label: `Holders (${holders?.totalHolders ?? '...'})`, icon: <Users className="w-3.5 h-3.5" /> },
+            { key: 'pool' as const, label: 'Pool Info', icon: <Droplets className="w-3.5 h-3.5" /> },
+          ]).map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-[1px] ${
+                activeTab === tab.key
+                  ? 'border-emerald-500 text-emerald-400'
+                  : 'border-transparent text-foreground-muted hover:text-foreground'
+              }`}
+            >
+              {tab.icon} {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Analysis Tab */}
+        {activeTab === 'analysis' && analysis && (
+          <div className="space-y-4">
+            {/* Risk Overview */}
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-background-tertiary/50">
+              <Shield className={`w-8 h-8 ${analysis.riskColor}`} />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Risk Assessment</span>
+                  <span className={`font-bold ${analysis.riskColor}`}>{analysis.riskLabel}</span>
+                </div>
+                <div className="w-full h-2 bg-background rounded-full mt-2 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      analysis.riskScore >= 60 ? 'bg-red-500' :
+                      analysis.riskScore >= 35 ? 'bg-yellow-500' :
+                      'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(analysis.riskScore, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Momentum */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground-muted flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5" /> Momentum
+                </h3>
+                <div className="p-3 rounded-lg bg-background-tertiary/30 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">24h Trend</span>
+                    <span className={`font-medium ${analysis.momColor}`}>{analysis.momentum}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Volume / MCap</span>
+                    <span className={`font-mono ${analysis.volColor}`}>{analysis.volRatio.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Vol Health</span>
+                    <span className={`font-medium ${analysis.volColor}`}>{analysis.volHealth}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Holder Concentration */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground-muted flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5" /> Concentration
+                </h3>
+                <div className="p-3 rounded-lg bg-background-tertiary/30 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Top 3 Hold</span>
+                    <span className={`font-mono ${analysis.concColor}`}>{analysis.top3Pct.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Top 10 Hold</span>
+                    <span className="font-mono">{analysis.top10Pct.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Risk</span>
+                    <span className={`font-medium ${analysis.concColor}`}>{analysis.concRisk}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Liquidity */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground-muted flex items-center gap-1.5">
+                  <Droplets className="w-3.5 h-3.5" /> Liquidity
+                </h3>
+                <div className="p-3 rounded-lg bg-background-tertiary/30 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Pool USD</span>
+                    <span className="font-mono">${formatNumber(coin.poolBaseCurrencyAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Depth</span>
+                    <span className={`font-medium ${analysis.liqColor}`}>{analysis.liqLabel}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Pool Coins</span>
+                    <span className="font-mono">{formatNumber(coin.poolCoinAmount)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Market Info */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground-muted flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5" /> Market Info
+                </h3>
+                <div className="p-3 rounded-lg bg-background-tertiary/30 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Market Cap</span>
+                    <span className={`font-medium ${analysis.mcapColor}`}>{analysis.mcapTier}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Circ. Supply</span>
+                    <span className="font-mono">{formatNumber(coin.circulatingSupply)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-foreground-muted">Holders</span>
+                    <span className="font-mono">{holders?.totalHolders ?? '-'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Warnings */}
+            {analysis.riskScore >= 35 && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 shrink-0" />
+                <div className="text-sm text-yellow-400/80">
+                  {analysis.top3Pct > 50 && <p>Top 3 holders control over {analysis.top3Pct.toFixed(0)}% of supply — rug pull risk.</p>}
+                  {analysis.poolUsd < 1_000 && <p>Very thin liquidity — large trades will cause extreme price impact.</p>}
+                  {coin.change24h < -30 && <p>Price has dropped over 30% in 24h — potential dump in progress.</p>}
+                  {analysis.volRatio < 1 && <p>Trading volume is extremely low relative to market cap.</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'analysis' && !analysis && (
+          <div className="text-center py-8 text-foreground-muted">Loading analysis...</div>
+        )}
+
+        {/* Holders Tab */}
+        {activeTab === 'holders' && (
+          <div>
+            {holders ? (
+              <div className="space-y-1 max-h-[500px] overflow-y-auto">
+                {holders.holders.map((holder) => (
+                  <HolderRow key={holder.userId} holder={holder} onUserClick={onUserClick} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-foreground-muted">Loading holders...</div>
+            )}
+          </div>
+        )}
+
+        {/* Pool Info Tab */}
+        {activeTab === 'pool' && (
           <div className="space-y-3">
-            <div className="flex justify-between">
+            <div className="flex justify-between py-2 border-b border-background-tertiary/50">
               <span className="text-foreground-muted">Pool Coins</span>
               <span className="font-mono">{formatNumber(coin.poolCoinAmount)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between py-2 border-b border-background-tertiary/50">
               <span className="text-foreground-muted">Pool USD</span>
               <span className="font-mono">${formatNumber(coin.poolBaseCurrencyAmount)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between py-2 border-b border-background-tertiary/50">
               <span className="text-foreground-muted">Circulating Supply</span>
               <span className="font-mono">{formatNumber(coin.circulatingSupply)}</span>
             </div>
-          </div>
-        </div>
-
-        {/* Top Holders - shown by default */}
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-4">Top Holders</h2>
-
-          {holders ? (
-            <div className="space-y-2 max-h-[400px] overflow-y-auto">
-              {holders.holders.slice(0, 10).map((holder) => (
-                <HolderRow key={holder.userId} holder={holder} />
-              ))}
+            <div className="flex justify-between py-2 border-b border-background-tertiary/50">
+              <span className="text-foreground-muted">Current Price</span>
+              <span className="font-mono">{formatPrice(displayPrice)}</span>
             </div>
-          ) : (
-            <div className="text-center py-4 text-foreground-muted">Loading holders...</div>
-          )}
+            {holders?.poolInfo && (
+              <>
+                <div className="flex justify-between py-2 border-b border-background-tertiary/50">
+                  <span className="text-foreground-muted">Pool Price (from holders API)</span>
+                  <span className="font-mono">{formatPrice(holders.poolInfo.currentPrice)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Comments Section */}
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4">
+          <MessageCircle className="w-5 h-5 text-foreground-muted" />
+          <h2 className="text-lg font-semibold">Comments ({comments.length})</h2>
         </div>
+
+        {/* Post Comment */}
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handlePostComment()}
+            placeholder="Write a comment..."
+            maxLength={500}
+            className="input flex-1"
+          />
+          <button
+            onClick={handlePostComment}
+            disabled={postingComment || !commentText.trim()}
+            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-emerald-800 disabled:cursor-not-allowed transition-colors"
+          >
+            {postingComment ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {/* Comment List */}
+        {comments.length === 0 ? (
+          <div className="text-center py-6 text-foreground-muted text-sm">
+            No comments yet. Be the first to comment!
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-[400px] overflow-y-auto">
+            {comments.map((comment) => (
+              <CommentRow
+                key={comment.id}
+                comment={comment}
+                onUserClick={onUserClick}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-function HolderRow({ holder }: { holder: Holder }) {
+function HolderRow({ holder, onUserClick }: { holder: Holder; onUserClick?: (userId: string) => void }) {
   const imageUrl = buildImageUrl(holder.image)
 
   return (
-    <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-background-tertiary/50 transition-colors">
+    <div
+      onClick={() => onUserClick?.(String(holder.userId))}
+      className={`flex items-center gap-3 p-2 rounded-lg hover:bg-background-tertiary/50 transition-colors ${onUserClick ? 'cursor-pointer' : ''}`}
+    >
       <span className="w-6 text-center text-sm text-foreground-muted">#{holder.rank}</span>
       <div className="w-8 h-8 rounded-full bg-background-tertiary flex items-center justify-center overflow-hidden">
         {imageUrl ? (
@@ -330,7 +702,7 @@ function HolderRow({ holder }: { holder: Holder }) {
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="font-medium truncate">{holder.username}</div>
+        <div className="font-medium truncate hover:underline">{holder.username}</div>
         <div className="text-xs text-foreground-muted">{holder.percentage.toFixed(2)}%</div>
       </div>
       <div className="text-right text-sm">
@@ -338,6 +710,56 @@ function HolderRow({ holder }: { holder: Holder }) {
       </div>
     </div>
   )
+}
+
+function CommentRow({ comment, onUserClick }: { comment: CoinComment; onUserClick?: (userId: string) => void }) {
+  const imageUrl = buildImageUrl(comment.userImage)
+  const timeAgo = getTimeAgo(comment.createdAt)
+
+  return (
+    <div className="flex gap-3 p-3 rounded-lg hover:bg-background-tertiary/30 transition-colors">
+      <div
+        onClick={() => onUserClick?.(String(comment.userId))}
+        className={`w-8 h-8 rounded-full bg-background-tertiary flex items-center justify-center overflow-hidden shrink-0 ${onUserClick ? 'cursor-pointer' : ''}`}
+      >
+        {imageUrl ? (
+          <img src={imageUrl} alt={comment.userUsername} className="w-full h-full object-cover" />
+        ) : (
+          <Users className="w-4 h-4 text-foreground-muted" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span
+            onClick={() => onUserClick?.(String(comment.userId))}
+            className={`text-sm font-medium truncate ${onUserClick ? 'cursor-pointer hover:underline' : ''}`}
+          >
+            {comment.userName || comment.userUsername}
+          </span>
+          <span className="text-xs text-foreground-muted">@{comment.userUsername}</span>
+          <span className="text-xs text-foreground-muted">{timeAgo}</span>
+        </div>
+        <p className="text-sm mt-0.5 break-words">{comment.content}</p>
+        {comment.likesCount > 0 && (
+          <div className="flex items-center gap-1 mt-1 text-xs text-foreground-muted">
+            <Heart className={`w-3 h-3 ${comment.isLikedByUser ? 'fill-rose-400 text-rose-400' : ''}`} />
+            {comment.likesCount}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function getTimeAgo(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diffSec = Math.floor((now - then) / 1000)
+  if (diffSec < 60) return 'just now'
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
+  if (diffSec < 2592000) return `${Math.floor(diffSec / 86400)}d ago`
+  return new Date(dateStr).toLocaleDateString()
 }
 
 // Interactive Chart with zoom, drag-pan, volume bars, current price line, and range measurement
@@ -979,7 +1401,7 @@ function SimpleTrade({
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder={tradeType === 'BUY' ? 'Enter USD amount' : 'Enter coin amount'}
-          className="w-full px-3 py-2 rounded-lg bg-background border border-zinc-700 focus:outline-none focus:border-emerald-500"
+          className="input"
         />
         {/* Quick sell % buttons */}
         {tradeType === 'SELL' && userQuantity && userQuantity > 0 && (

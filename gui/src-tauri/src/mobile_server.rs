@@ -4,7 +4,8 @@
 //! and REST API, allowing users to view/control the app from any phone browser.
 //!
 //! Supports two connection modes:
-//! - **Internet**: Uses bore tunnel (bore.pub) — accessible from anywhere, no user IP exposed
+//! - **Internet**: Uses Cloudflare Quick Tunnel (trycloudflare.com) — accessible
+//!   from anywhere, HTTPS, no account required, no firewall config needed
 //! - **Local WiFi**: Binds to LAN IP — accessible only from same WiFi network
 
 use crate::AppState;
@@ -16,22 +17,20 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rugplay_core::{PortfolioResponse, PortfolioSummary, RecentTrade};
+use rugplay_core::{PortfolioResponse, PortfolioSummary, RecentTrade, TradeType};
 use rugplay_networking::RugplayClient;
 use rugplay_persistence::sqlite;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tokio::io::AsyncBufReadExt;
 use tokio::sync::{watch, RwLock};
 use tracing::{error, info, warn};
 
 /// Default port for the mobile server
 const DEFAULT_PORT: u16 = 9876;
-
-/// Max failed PIN attempts before IP is blocked
-const MAX_PIN_FAILURES: u32 = 5;
 
 /// Max concurrent sessions
 const MAX_SESSIONS: usize = 3;
@@ -48,6 +47,38 @@ pub enum ConnectionMode {
     LocalWifi,
 }
 
+/// Access role for a mobile session
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionRole {
+    /// View-only: portfolio, module statuses
+    Viewer,
+    /// View + sentinels, sniper, activity log
+    Trusted,
+    /// Full control: buy/sell, all data
+    Admin,
+}
+
+impl std::fmt::Display for SessionRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionRole::Viewer => write!(f, "Viewer"),
+            SessionRole::Trusted => write!(f, "Trusted"),
+            SessionRole::Admin => write!(f, "Admin"),
+        }
+    }
+}
+
+/// Data stored per active session
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionData {
+    pub role: SessionRole,
+    pub label: String,
+    pub connected_at: chrono::DateTime<chrono::Utc>,
+    pub last_activity: chrono::DateTime<chrono::Utc>,
+}
+
 /// Shared state for the mobile server
 #[derive(Clone)]
 pub struct MobileServerState {
@@ -55,12 +86,12 @@ pub struct MobileServerState {
     pub app_state: AppState,
     /// The 6-digit PIN required for auth
     pub pin: Arc<RwLock<String>>,
-    /// Active session tokens (token → creation time)
-    pub sessions: Arc<RwLock<HashMap<String, chrono::DateTime<chrono::Utc>>>>,
+    /// Active session tokens (token -> session data)
+    pub sessions: Arc<RwLock<HashMap<String, SessionData>>>,
     /// Failed PIN attempts per IP
     pub failed_attempts: Arc<RwLock<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>>,
-    /// Whether remote control (trading) is enabled
-    pub control_enabled: Arc<RwLock<bool>>,
+    /// Default role assigned to new sessions
+    pub default_role: Arc<RwLock<SessionRole>>,
     /// Tauri app handle for accessing managed state
     pub app_handle: Option<tauri::AppHandle>,
 }
@@ -74,10 +105,9 @@ pub struct MobileServerStatus {
     pub url: Option<String>,
     pub pin: String,
     pub connected_clients: usize,
-    pub control_enabled: bool,
+    pub default_role: SessionRole,
     pub qr_svg: Option<String>,
     pub port: u16,
-    /// Details for each active session
     pub sessions: Vec<SessionInfo>,
 }
 
@@ -85,12 +115,22 @@ pub struct MobileServerStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
-    /// Short token prefix for identification (first 8 chars)
     pub token_prefix: String,
-    /// When this session was created
+    pub role: SessionRole,
+    pub label: String,
     pub connected_at: String,
-    /// How long ago the session was created
     pub connected_duration: String,
+}
+
+/// Event emitted to the desktop when a mobile device connects
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MobileConnectionEvent {
+    pub event_type: String,
+    pub token_prefix: String,
+    pub role: SessionRole,
+    pub label: String,
+    pub total_sessions: usize,
 }
 
 /// Handle to control the mobile server lifecycle
@@ -102,6 +142,8 @@ pub struct MobileServerHandle {
     status: Arc<RwLock<MobileServerStatus>>,
     /// The shared server state
     server_state: Arc<RwLock<Option<MobileServerState>>>,
+    /// Cloudflared child process (killed on stop)
+    tunnel_process: Arc<RwLock<Option<u32>>>,
 }
 
 impl MobileServerHandle {
@@ -114,12 +156,13 @@ impl MobileServerHandle {
                 url: None,
                 pin: String::new(),
                 connected_clients: 0,
-                control_enabled: false,
+                default_role: SessionRole::Viewer,
                 qr_svg: None,
                 port: DEFAULT_PORT,
                 sessions: Vec::new(),
             })),
             server_state: Arc::new(RwLock::new(None)),
+            tunnel_process: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -148,7 +191,7 @@ impl MobileServerHandle {
             pin: Arc::new(RwLock::new(pin.clone())),
             sessions: Arc::new(RwLock::new(HashMap::new())),
             failed_attempts: Arc::new(RwLock::new(HashMap::new())),
-            control_enabled: Arc::new(RwLock::new(false)),
+            default_role: Arc::new(RwLock::new(SessionRole::Viewer)),
             app_handle: Some(app_handle),
         };
 
@@ -172,13 +215,13 @@ impl MobileServerHandle {
 
         match mode {
             ConnectionMode::Internet => {
-                // Bind to localhost only — bore will tunnel
+                // Bind to localhost only — cloudflared will tunnel
                 let bind_addr = SocketAddr::from(([127, 0, 0, 1], port));
                 let listener = tokio::net::TcpListener::bind(bind_addr)
                     .await
                     .map_err(|e| format!("Failed to bind to {}: {}", bind_addr, e))?;
 
-                info!("Mobile server listening on {} (awaiting bore tunnel)", bind_addr);
+                info!("Mobile server listening on {} (awaiting Cloudflare tunnel)", bind_addr);
 
                 // Spawn the axum server
                 let server_shutdown_rx = shutdown_rx.clone();
@@ -196,41 +239,46 @@ impl MobileServerHandle {
                         .unwrap_or_else(|e| error!("Mobile server error: {}", e));
                 });
 
-                // Spawn bore tunnel in a separate task
-                let bore_status = status_clone.clone();
-                let bore_pin = pin.clone();
-                let bore_port = port;
-                let bore_shutdown_rx = shutdown_rx.clone();
+                // Spawn Cloudflare Quick Tunnel in a separate task
+                let cf_status = status_clone.clone();
+                let cf_pin = pin.clone();
+                let cf_shutdown_rx = shutdown_rx.clone();
+                let cf_data_dir = server_state.app_state.data_dir.clone();
+                let cf_process = self.tunnel_process.clone();
 
                 tokio::spawn(async move {
-                    match start_bore_tunnel(bore_port, bore_shutdown_rx).await {
-                        Ok((public_url, _remote_port)) => {
-                            let full_url = public_url.clone();
-                            let qr_svg = generate_qr_svg(&format!("{}?pin={}", full_url, bore_pin));
+                    match start_cloudflare_tunnel(port, &cf_data_dir, cf_shutdown_rx).await {
+                        Ok((public_url, child)) => {
+                            // Store the child process PID for cleanup
+                            if let Some(pid) = child.id() {
+                                *cf_process.write().await = Some(pid);
+                            }
+                            // Forget the child handle (process runs independently, killed by PID on stop)
+                            std::mem::forget(child);
 
-                            let mut status = bore_status.write().await;
-                            status.url = Some(full_url);
+                            let qr_svg = generate_qr_svg(&format!("{}?pin={}", public_url, cf_pin));
+                            let mut status = cf_status.write().await;
+                            status.url = Some(public_url.clone());
                             status.qr_svg = Some(qr_svg);
 
-                            info!("bore tunnel established: {}", public_url);
+                            info!("Cloudflare tunnel ready: {}", public_url);
                         }
                         Err(e) => {
-                            error!("Failed to establish bore tunnel: {}", e);
-                            let mut status = bore_status.write().await;
-                            status.url = Some(format!("Tunnel failed: {}", e));
+                            error!("Failed to establish Cloudflare tunnel: {}", e);
+                            let mut status = cf_status.write().await;
+                            status.url = Some("Tunnel unavailable — use Local WiFi mode".into());
                         }
                     }
                 });
 
-                // Update status (URL will be set when bore connects)
+                // Update status (URL will be set when tunnel connects)
                 let mut status = self.status.write().await;
                 status.running = true;
                 status.mode = ConnectionMode::Internet;
                 status.pin = pin;
                 status.port = port;
                 status.connected_clients = 0;
-                status.control_enabled = false;
-                // URL and QR will be populated by the bore task
+                status.default_role = SessionRole::Viewer;
                 status.url = Some("Connecting tunnel...".into());
                 status.qr_svg = None;
 
@@ -273,7 +321,7 @@ impl MobileServerHandle {
                 status.pin = pin;
                 status.port = port;
                 status.connected_clients = 0;
-                status.control_enabled = false;
+                status.default_role = SessionRole::Viewer;
                 status.qr_svg = Some(qr_svg);
 
                 Ok(status.clone())
@@ -287,6 +335,27 @@ impl MobileServerHandle {
         if let Some(sender) = tx.take() {
             let _ = sender.send(true);
             info!("Mobile server shutdown signal sent");
+        }
+
+        // Kill cloudflared process if running
+        let mut pid_lock = self.tunnel_process.write().await;
+        if let Some(pid) = pid_lock.take() {
+            info!("Killing cloudflared process (PID: {})", pid);
+            #[cfg(windows)]
+            {
+                let _ = tokio::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .creation_flags(0x08000000)
+                    .output()
+                    .await;
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = tokio::process::Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .output()
+                    .await;
+            }
         }
 
         // Clear state
@@ -307,18 +376,16 @@ impl MobileServerHandle {
     /// Get current server status
     pub async fn get_status(&self) -> MobileServerStatus {
         let mut status = self.status.read().await.clone();
-        // Update connected clients count and session details from session state
         if let Some(ss) = self.server_state.read().await.as_ref() {
             let sessions = ss.sessions.read().await;
             status.connected_clients = sessions.len();
-            status.control_enabled = *ss.control_enabled.read().await;
+            status.default_role = *ss.default_role.read().await;
 
-            // Build session info list
             let now = chrono::Utc::now();
             status.sessions = sessions
                 .iter()
-                .map(|(token, created_at)| {
-                    let duration = now.signed_duration_since(*created_at);
+                .map(|(token, data)| {
+                    let duration = now.signed_duration_since(data.connected_at);
                     let duration_str = if duration.num_hours() > 0 {
                         format!("{}h {}m", duration.num_hours(), duration.num_minutes() % 60)
                     } else if duration.num_minutes() > 0 {
@@ -329,7 +396,9 @@ impl MobileServerHandle {
 
                     SessionInfo {
                         token_prefix: token.chars().take(8).collect(),
-                        connected_at: created_at.to_rfc3339(),
+                        role: data.role,
+                        label: data.label.clone(),
+                        connected_at: data.connected_at.to_rfc3339(),
                         connected_duration: duration_str,
                     }
                 })
@@ -365,66 +434,226 @@ impl MobileServerHandle {
         }
     }
 
-    /// Toggle remote control (trading) capability
-    pub async fn set_control_enabled(&self, enabled: bool) -> Result<bool, String> {
+    /// Set the default role for new sessions
+    pub async fn set_default_role(&self, role: SessionRole) -> Result<SessionRole, String> {
         let ss = self.server_state.read().await;
         if let Some(state) = ss.as_ref() {
-            let mut ctrl = state.control_enabled.write().await;
-            *ctrl = enabled;
-            Ok(enabled)
+            let mut r = state.default_role.write().await;
+            *r = role;
+            Ok(role)
+        } else {
+            Err("Server is not running".into())
+        }
+    }
+
+    /// Kick a session by its token prefix
+    pub async fn kick_session(&self, token_prefix: &str) -> Result<(), String> {
+        let ss = self.server_state.read().await;
+        if let Some(state) = ss.as_ref() {
+            let mut sessions = state.sessions.write().await;
+            let key = sessions
+                .keys()
+                .find(|k| k.starts_with(token_prefix))
+                .cloned();
+            if let Some(key) = key {
+                let data = sessions.remove(&key);
+                info!("Kicked session {} ({})", token_prefix, data.map(|d| d.label).unwrap_or_default());
+
+                // Emit event to desktop
+                if let Some(app_handle) = &state.app_handle {
+                    let _ = app_handle.emit("mobile-connection", MobileConnectionEvent {
+                        event_type: "kicked".into(),
+                        token_prefix: token_prefix.to_string(),
+                        role: SessionRole::Viewer,
+                        label: String::new(),
+                        total_sessions: sessions.len(),
+                    });
+                }
+                Ok(())
+            } else {
+                Err("Session not found".into())
+            }
+        } else {
+            Err("Server is not running".into())
+        }
+    }
+
+    /// Change the role of an existing session
+    pub async fn set_session_role(&self, token_prefix: &str, role: SessionRole) -> Result<(), String> {
+        let ss = self.server_state.read().await;
+        if let Some(state) = ss.as_ref() {
+            let mut sessions = state.sessions.write().await;
+            let key = sessions
+                .keys()
+                .find(|k| k.starts_with(token_prefix))
+                .cloned();
+            if let Some(key) = key {
+                if let Some(data) = sessions.get_mut(&key) {
+                    data.role = role;
+                    info!("Session {} role changed to {}", token_prefix, role);
+                    Ok(())
+                } else {
+                    Err("Session not found".into())
+                }
+            } else {
+                Err("Session not found".into())
+            }
         } else {
             Err("Server is not running".into())
         }
     }
 }
 
-// ─── bore Tunnel ───────────────────────────────────────────────────
+// ─── Cloudflare Quick Tunnel ───────────────────────────────────────
 
-/// Start a bore tunnel to expose the local server to the internet
-async fn start_bore_tunnel(
-    local_port: u16,
-    mut shutdown_rx: watch::Receiver<bool>,
-) -> Result<(String, u16), String> {
-    use bore_cli::client::Client;
+/// Path to the cloudflared binary inside the app data directory
+fn cloudflared_bin_path(data_dir: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    { data_dir.join("bin").join("cloudflared.exe") }
+    #[cfg(not(windows))]
+    { data_dir.join("bin").join("cloudflared") }
+}
 
-    // Connect to bore.pub relay with a random port (0 = auto-assign)
-    let client = Client::new("localhost", local_port, "bore.pub", 0, None)
+/// Download cloudflared binary to the app data directory.
+async fn download_cloudflared(data_dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let bin_dir = data_dir.join("bin");
+    tokio::fs::create_dir_all(&bin_dir)
         .await
-        .map_err(|e| format!("Failed to connect to bore.pub: {}", e))?;
+        .map_err(|e| format!("Failed to create bin directory: {}", e))?;
 
-    let remote_port = client.remote_port();
-    let public_url = format!("http://bore.pub:{}", remote_port);
+    let dest = cloudflared_bin_path(data_dir);
+    if dest.exists() {
+        info!("cloudflared already exists at {}", dest.display());
+        return Ok(dest);
+    }
 
-    info!("bore tunnel: localhost:{} → bore.pub:{}", local_port, remote_port);
+    #[cfg(windows)]
+    let url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe";
+    #[cfg(target_os = "linux")]
+    let url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64";
+    #[cfg(target_os = "macos")]
+    let url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz";
 
-    // Run the bore client in the background — it will listen for connections
-    tokio::spawn(async move {
-        tokio::select! {
-            result = client.listen() => {
-                if let Err(e) = result {
-                    warn!("bore tunnel disconnected: {}", e);
+    info!("Downloading cloudflared from {}", url);
+
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to download cloudflared: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status: {}", response.status()));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read download: {}", e))?;
+
+    tokio::fs::write(&dest, &bytes)
+        .await
+        .map_err(|e| format!("Failed to write cloudflared binary: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Failed to set executable permission: {}", e))?;
+    }
+
+    info!("cloudflared downloaded to {}", dest.display());
+    Ok(dest)
+}
+
+/// Start a Cloudflare Quick Tunnel (trycloudflare.com).
+/// Spawns `cloudflared tunnel --url http://localhost:{port}` and parses the
+/// assigned URL from its stderr output. No account needed.
+async fn start_cloudflare_tunnel(
+    local_port: u16,
+    data_dir: &std::path::Path,
+    shutdown_rx: watch::Receiver<bool>,
+) -> Result<(String, tokio::process::Child), String> {
+    let bin_path = download_cloudflared(data_dir).await?;
+
+    info!("Starting cloudflared quick tunnel for port {}", local_port);
+
+    let mut cmd = tokio::process::Command::new(&bin_path);
+    cmd.args(["tunnel", "--url", &format!("http://localhost:{}", local_port)])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW on Windows
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn cloudflared: {}", e))?;
+
+    // cloudflared prints the assigned URL to stderr like:
+    //   ... | INF +----------------------------+
+    //   ... | INF |  https://xxx.trycloudflare.com |
+    //   ... | INF +----------------------------+
+    // We scan stderr lines for the trycloudflare.com URL.
+
+    let stderr = child.stderr.take().ok_or("Failed to capture cloudflared stderr")?;
+    let mut reader = tokio::io::BufReader::new(stderr).lines();
+
+    let url = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while let Some(line) = reader.next_line().await.map_err(|e: std::io::Error| e.to_string())? {
+            // Look for the trycloudflare URL in the output
+            if let Some(start) = line.find("https://") {
+                let url_part = &line[start..];
+                // Trim any trailing whitespace or pipe chars
+                let url = url_part
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(url_part)
+                    .trim_end_matches('|')
+                    .trim();
+                if url.contains("trycloudflare.com") {
+                    return Ok::<String, String>(url.to_string());
                 }
             }
-            _ = async {
-                while !*shutdown_rx.borrow() {
-                    if shutdown_rx.changed().await.is_err() {
-                        break;
+
+            // Check for shutdown during URL detection
+            if *shutdown_rx.borrow() {
+                return Err("Shutdown requested".into());
+            }
+        }
+        Err("cloudflared exited without providing a tunnel URL".into())
+    })
+    .await
+    .map_err(|_| "Timed out waiting for cloudflared tunnel URL (30s)".to_string())??;
+
+    // Spawn a background task to drain remaining stderr so the process doesn't block
+    let drain_shutdown = shutdown_rx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                line = reader.next_line() => {
+                    match line {
+                        Ok(Some(_)) => continue,
+                        _ => break,
                     }
                 }
-            } => {
-                info!("bore tunnel shutting down");
+                _ = async {
+                    while !*drain_shutdown.borrow() {
+                        if drain_shutdown.clone().changed().await.is_err() { break; }
+                    }
+                } => break,
             }
         }
     });
 
-    Ok((public_url, remote_port))
+    info!("Cloudflare tunnel established: {}", url);
+    Ok((url, child))
 }
 
 // ─── Router ────────────────────────────────────────────────────────
 
 /// Build the axum router with all routes and middleware
 fn build_router(state: MobileServerState) -> Router {
-    // Public routes (no auth required)
     let public_routes = Router::new()
         .route("/api/auth", post(handle_pin_auth))
         .route("/api/auth/check", get(handle_auth_check))
@@ -432,21 +661,43 @@ fn build_router(state: MobileServerState) -> Router {
         .route("/app.js", get(serve_mobile_js))
         .route("/favicon.ico", get(serve_favicon));
 
-    // Protected routes (require valid session)
-    let protected_routes = Router::new()
+    // Routes available to all authenticated users (viewer+)
+    let viewer_routes = Router::new()
         .route("/api/status", get(handle_status))
         .route("/api/portfolio", get(handle_portfolio))
         .route("/api/portfolio/summary", get(handle_portfolio_summary))
         .route("/api/dashboard", get(handle_dashboard))
         .route("/api/trades/recent", get(handle_recent_trades))
+        .route("/api/session/role", get(handle_session_role))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ));
 
+    // Routes requiring Trusted+ role
+    let trusted_routes = Router::new()
+        .route("/api/sentinels", get(handle_sentinels))
+        .route("/api/sniper", get(handle_sniper_status))
+        .route("/api/dipbuyer", get(handle_dipbuyer_status))
+        .route("/api/activity", get(handle_activity_log))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            trusted_middleware,
+        ));
+
+    // Routes requiring Admin role
+    let admin_routes = Router::new()
+        .route("/api/trade", post(handle_trade))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_middleware,
+        ));
+
     Router::new()
         .merge(public_routes)
-        .merge(protected_routes)
+        .merge(viewer_routes)
+        .merge(trusted_routes)
+        .merge(admin_routes)
         .with_state(state)
 }
 
@@ -488,13 +739,60 @@ async fn auth_middleware(
     let token = extract_session_token(req.headers(), query);
 
     if let Some(token) = token {
-        let sessions = state.sessions.read().await;
-        if sessions.contains_key(&token) {
+        let mut sessions = state.sessions.write().await;
+        if let Some(data) = sessions.get_mut(&token) {
+            data.last_activity = chrono::Utc::now();
             return Ok(next.run(req).await);
         }
     }
 
-    Ok((StatusCode::UNAUTHORIZED, "Unauthorized — please enter PIN").into_response())
+    Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response())
+}
+
+/// Middleware requiring Trusted or Admin role
+async fn trusted_middleware(
+    AxumState(state): AxumState<MobileServerState>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let query = req.uri().query().unwrap_or("");
+    let token = extract_session_token(req.headers(), query);
+
+    if let Some(token) = token {
+        let mut sessions = state.sessions.write().await;
+        if let Some(data) = sessions.get_mut(&token) {
+            if matches!(data.role, SessionRole::Trusted | SessionRole::Admin) {
+                data.last_activity = chrono::Utc::now();
+                return Ok(next.run(req).await);
+            }
+            return Ok((StatusCode::FORBIDDEN, "Insufficient permissions — Trusted role required").into_response());
+        }
+    }
+
+    Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response())
+}
+
+/// Middleware requiring Admin role
+async fn admin_middleware(
+    AxumState(state): AxumState<MobileServerState>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let query = req.uri().query().unwrap_or("");
+    let token = extract_session_token(req.headers(), query);
+
+    if let Some(token) = token {
+        let mut sessions = state.sessions.write().await;
+        if let Some(data) = sessions.get_mut(&token) {
+            if matches!(data.role, SessionRole::Admin) {
+                data.last_activity = chrono::Utc::now();
+                return Ok(next.run(req).await);
+            }
+            return Ok((StatusCode::FORBIDDEN, "Insufficient permissions — Admin role required").into_response());
+        }
+    }
+
+    Ok((StatusCode::UNAUTHORIZED, "Unauthorized").into_response())
 }
 
 // ─── Route Handlers ────────────────────────────────────────────────
@@ -509,6 +807,7 @@ struct PinRequest {
 struct AuthResponse {
     success: bool,
     session_token: Option<String>,
+    role: Option<SessionRole>,
     message: String,
 }
 
@@ -520,24 +819,52 @@ async fn handle_pin_auth(
     let expected_pin = state.pin.read().await.clone();
 
     if body.pin == expected_pin {
-        // Check session limit
         let mut sessions = state.sessions.write().await;
         if sessions.len() >= MAX_SESSIONS {
-            // Remove oldest session
             if let Some(oldest_key) = sessions
                 .iter()
-                .min_by_key(|(_, t)| *t)
+                .min_by_key(|(_, d)| d.connected_at)
                 .map(|(k, _)| k.clone())
             {
                 sessions.remove(&oldest_key);
             }
         }
 
-        // Issue new session token
+        let default_role = *state.default_role.read().await;
         let token = uuid::Uuid::new_v4().to_string();
-        sessions.insert(token.clone(), chrono::Utc::now());
+        let session_num = sessions.len() + 1;
+        let label = format!("Device {}", session_num);
+        let now = chrono::Utc::now();
 
-        // Set cookie header
+        sessions.insert(token.clone(), SessionData {
+            role: default_role,
+            label: label.clone(),
+            connected_at: now,
+            last_activity: now,
+        });
+
+        let token_prefix: String = token.chars().take(8).collect();
+        let total = sessions.len();
+        drop(sessions);
+
+        // Emit connection event to desktop
+        if let Some(app_handle) = &state.app_handle {
+            let _ = app_handle.emit("mobile-connection", MobileConnectionEvent {
+                event_type: "connected".into(),
+                token_prefix: token_prefix.clone(),
+                role: default_role,
+                label: label.clone(),
+                total_sessions: total,
+            });
+
+            // Also send a native notification
+            if let Some(notif) = app_handle.try_state::<crate::NotificationHandle>() {
+                notif.send_raw("Mobile Device Connected", &format!("{} joined as {}", label, default_role)).await;
+            }
+        }
+
+        info!("Mobile session created: {} (role: {})", token_prefix, default_role);
+
         let mut headers = HeaderMap::new();
         headers.insert(
             header::SET_COOKIE,
@@ -552,6 +879,7 @@ async fn handle_pin_auth(
             Json(AuthResponse {
                 success: true,
                 session_token: Some(token),
+                role: Some(default_role),
                 message: "Authenticated successfully".into(),
             }),
         )
@@ -562,6 +890,7 @@ async fn handle_pin_auth(
             Json(AuthResponse {
                 success: false,
                 session_token: None,
+                role: None,
                 message: "Invalid PIN".into(),
             }),
         )
@@ -583,8 +912,12 @@ async fn handle_auth_check(
 
     if let Some(token) = token {
         let sessions = state.sessions.read().await;
-        if sessions.contains_key(&token) {
-            return (StatusCode::OK, Json(serde_json::json!({"valid": true}))).into_response();
+        if let Some(data) = sessions.get(&token) {
+            return (StatusCode::OK, Json(serde_json::json!({
+                "valid": true,
+                "role": data.role,
+                "label": data.label,
+            }))).into_response();
         }
     }
     (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"valid": false}))).into_response()
@@ -665,6 +998,15 @@ async fn handle_dashboard(
                 "enabled": enabled,
             }));
         }
+
+        // Dip Buyer status
+        if let Some(handle) = app_handle.try_state::<crate::DipBuyerHandle>() {
+            let handle: &crate::DipBuyerHandle = &handle;
+            let enabled = handle.is_enabled();
+            modules.insert("dipbuyer".into(), serde_json::json!({
+                "enabled": enabled,
+            }));
+        }
     }
 
     Json(serde_json::json!({
@@ -693,7 +1035,6 @@ async fn handle_recent_trades(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Filter out transfers
     let trades: Vec<RecentTrade> = trades
         .into_iter()
         .filter(|t| {
@@ -703,6 +1044,185 @@ async fn handle_recent_trades(
         .collect();
 
     Ok(Json(trades))
+}
+
+/// GET /api/session/role — returns the current session's role
+async fn handle_session_role(
+    headers: HeaderMap,
+    AxumState(state): AxumState<MobileServerState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let query_str = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&");
+    let token = extract_session_token(&headers, &query_str);
+
+    if let Some(token) = token {
+        let sessions = state.sessions.read().await;
+        if let Some(data) = sessions.get(&token) {
+            return (StatusCode::OK, Json(serde_json::json!({
+                "role": data.role,
+                "label": data.label,
+            }))).into_response();
+        }
+    }
+    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Unauthorized"}))).into_response()
+}
+
+/// GET /api/sentinels — list active sentinels (Trusted+)
+async fn handle_sentinels(
+    AxumState(state): AxumState<MobileServerState>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let db_guard = state.app_state.db.read().await;
+    let db = db_guard.as_ref().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let profile = sqlite::get_active_profile(db.pool())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let sentinels = sqlite::get_sentinels(db.pool(), profile.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(sentinels))
+}
+
+/// GET /api/sniper — sniper config and status (Trusted+)
+async fn handle_sniper_status(
+    AxumState(state): AxumState<MobileServerState>,
+) -> impl IntoResponse {
+    let mut result = serde_json::json!({ "enabled": false });
+
+    if let Some(app_handle) = &state.app_handle {
+        if let Some(handle) = app_handle.try_state::<crate::SniperHandle>() {
+            let config = handle.get_config().await;
+            result = serde_json::json!({
+                "enabled": handle.is_enabled(),
+                "config": config,
+            });
+        }
+    }
+    Json(result)
+}
+
+/// GET /api/dipbuyer — dip buyer config and status (Trusted+)
+async fn handle_dipbuyer_status(
+    AxumState(state): AxumState<MobileServerState>,
+) -> impl IntoResponse {
+    let mut result = serde_json::json!({ "enabled": false });
+
+    if let Some(app_handle) = &state.app_handle {
+        if let Some(handle) = app_handle.try_state::<crate::DipBuyerHandle>() {
+            let config = handle.get_config().await;
+            result = serde_json::json!({
+                "enabled": handle.is_enabled(),
+                "config": {
+                    "preset": format!("{:?}", config.preset).to_lowercase(),
+                    "buyAmountUsd": config.buy_amount_usd,
+                    "minSellValueUsd": config.min_sell_value_usd,
+                    "skipTopNHolders": config.skip_top_n_holders,
+                    "maxDailyBuys": config.max_daily_buys,
+                    "autoCreateSentinel": config.auto_create_sentinel,
+                },
+            });
+        }
+    }
+    Json(result)
+}
+
+/// GET /api/activity — recent automation events (Trusted+)
+async fn handle_activity_log(
+    AxumState(state): AxumState<MobileServerState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let limit: u32 = params
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(50);
+
+    let db_guard = state.app_state.db.read().await;
+    let db = db_guard.as_ref().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let profile = sqlite::get_active_profile(db.pool())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let transactions = sqlite::get_transactions(db.pool(), profile.id, limit, 0, None, None)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Get triggered sentinels
+    let sentinels = sqlite::get_sentinels(db.pool(), profile.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let triggered: Vec<_> = sentinels
+        .iter()
+        .filter(|s| s.triggered_at.is_some())
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "transactions": transactions,
+        "triggeredSentinels": triggered,
+    })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TradePayload {
+    symbol: String,
+    trade_type: String,
+    amount: f64,
+}
+
+/// POST /api/trade — execute a buy/sell trade (Admin only)
+async fn handle_trade(
+    AxumState(state): AxumState<MobileServerState>,
+    Json(body): Json<TradePayload>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let app_handle = state.app_handle.as_ref().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let trade_type = match body.trade_type.to_uppercase().as_str() {
+        "BUY" => TradeType::Buy,
+        "SELL" => TradeType::Sell,
+        _ => return Ok((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Invalid trade type"}))).into_response()),
+    };
+
+    if body.amount <= 0.0 {
+        return Ok((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Amount must be positive"}))).into_response());
+    }
+
+    let executor = app_handle
+        .try_state::<crate::TradeExecutorHandle>()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let result = executor
+        .submit_trade(
+            body.symbol.clone(),
+            trade_type,
+            body.amount,
+            crate::trade_executor::TradePriority::Normal,
+            "Mobile trade".to_string(),
+        )
+        .await;
+
+    match result {
+        Ok(response) => Ok(Json(serde_json::json!({
+            "success": true,
+            "response": {
+                "newPrice": response.new_price,
+                "priceImpact": response.price_impact,
+            }
+        })).into_response()),
+        Err(e) => {
+            warn!("Mobile trade failed: {}", e);
+            Ok((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response())
+        }
+    }
 }
 
 // ─── Helper Functions ──────────────────────────────────────────────

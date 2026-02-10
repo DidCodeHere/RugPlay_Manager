@@ -94,7 +94,7 @@ export interface SentinelMonitorStatus {
   isPaused: boolean
 }
 
-export function SettingsLayout() {
+export function SettingsLayout({ setNavGuard }: { setNavGuard?: (guard: (() => boolean) | null) => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -173,6 +173,27 @@ export function SettingsLayout() {
     loadAllSettings()
   }, [loadAllSettings])
 
+  // Register navigation guard when there are unsaved changes
+  useEffect(() => {
+    if (!setNavGuard) return
+    setNavGuard(() => {
+      if (!hasChanges) return true
+      return window.confirm('You have unsaved settings changes. Discard them?')
+    })
+    return () => setNavGuard(null)
+  }, [hasChanges, setNavGuard])
+
+  // Warn on window/tab close
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!hasChanges) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasChanges])
+
   const saveAllSettings = async () => {
     setSaving(true)
     setSaveMessage(null)
@@ -205,6 +226,19 @@ export function SettingsLayout() {
 
       // Save sentinel interval
       await invoke('set_sentinel_monitor_interval', { intervalSecs: sentinelMonitor.intervalSecs })
+
+      // Purge sentinels for any blacklisted coins immediately
+      if (settings.blacklistedCoins.length > 0) {
+        const purged = await invoke<number>('purge_blacklisted_sentinels', {
+          blacklistedCoins: settings.blacklistedCoins,
+        })
+        if (purged > 0) {
+          setSaveMessage(`Saved — updated ${count} sentinel${count !== 1 ? 's' : ''}, removed ${purged} blacklisted`)
+          setTimeout(() => setSaveMessage(null), 5000)
+          setHasChanges(false)
+          return
+        }
+      }
 
       setSaveMessage(`Saved — updated ${count} sentinel${count !== 1 ? 's' : ''} with new defaults (custom-configured sentinels preserved)`)
       setTimeout(() => setSaveMessage(null), 5000)
@@ -266,7 +300,7 @@ export function SettingsLayout() {
       )}
 
       {/* Tab Navigation */}
-      <div className="border-b border-zinc-700">
+      <div className="border-b border-white/[0.08]">
         <nav className="flex gap-1 -mb-px overflow-x-auto">
           {TAB_ITEMS.map((tab) => {
             const Icon = tab.icon

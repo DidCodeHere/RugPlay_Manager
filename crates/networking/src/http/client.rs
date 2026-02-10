@@ -7,8 +7,9 @@ use reqwest::{
 };
 use rugplay_core::{
     ApiTransactionsResponse, CoinDetails, CoinDetailsResponse, CoinHoldersResponse, Error,
-    MarketResponse, PortfolioResponse, RecentTrade, RecentTradesResponse, Result,
-    SessionResponse, TradeRequest, TradeResponse, UserProfile, UserPublicProfileResponse,
+    LeaderboardResponse, MarketResponse, PortfolioResponse, RecentTrade, RecentTradesResponse,
+    Result, SessionResponse, TradeRequest, TradeResponse, UserProfile,
+    UserPublicProfileResponse,
 };
 use rugplay_persistence::cache::CoinCache;
 use std::sync::Arc;
@@ -270,10 +271,12 @@ impl RugplayClient {
             return Err(err);
         }
 
-        let response = response.error_for_status().map_err(|e| {
-            error!("Trade request failed: {}", e);
-            Error::TradeError(e.to_string())
-        })?;
+        let status = response.status();
+        if status.is_client_error() || status.is_server_error() {
+            let body = response.text().await.unwrap_or_default();
+            error!("Trade request failed: HTTP {} — {}", status, body);
+            return Err(Error::TradeError(format!("HTTP {}: {}", status, body)));
+        }
 
         let trade_response: TradeResponse = response.json().await.map_err(|e| {
             error!("Failed to parse trade response: {}", e);
@@ -409,8 +412,13 @@ impl RugplayClient {
             Error::ApiError(e.to_string())
         })?;
 
-        let data: ApiTransactionsResponse = response.json().await.map_err(|e| {
-            error!("Failed to parse transactions: {}", e);
+        let body_text = response.text().await.map_err(|e| {
+            error!("Failed to read transactions response body: {}", e);
+            Error::InvalidData(e.to_string())
+        })?;
+
+        let data: ApiTransactionsResponse = serde_json::from_str(&body_text).map_err(|e| {
+            error!("Failed to parse transactions: {}. Body preview: {}", e, &body_text[..body_text.len().min(500)]);
             Error::InvalidData(e.to_string())
         })?;
 
@@ -610,6 +618,45 @@ impl RugplayClient {
         Ok(profile)
     }
 
+    /// Get the platform leaderboard
+    #[instrument(skip(self))]
+    pub async fn get_leaderboard(&self) -> Result<LeaderboardResponse> {
+        let url = format!("{}/leaderboard", API_BASE);
+        debug!("Fetching leaderboard");
+
+        let resp = self
+            .http
+            .get(&url)
+            .headers(self.default_headers())
+            .send()
+            .await
+            .map_err(|e| {
+                error!("Leaderboard request failed: {}", e);
+                Error::ApiError(e.to_string())
+            })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(Error::ApiError(format!(
+                "Leaderboard request failed with status {}: {}", status, body
+            )));
+        }
+
+        let leaderboard: LeaderboardResponse = resp.json().await.map_err(|e| {
+            error!("Failed to parse leaderboard response: {}", e);
+            Error::InvalidData(e.to_string())
+        })?;
+
+        debug!("Leaderboard fetched: {} rugpullers, {} losers, {} cash kings, {} paper millionaires",
+            leaderboard.top_rugpullers.len(),
+            leaderboard.biggest_losers.len(),
+            leaderboard.cash_kings.len(),
+            leaderboard.paper_millionaires.len(),
+        );
+        Ok(leaderboard)
+    }
+
     /// Get the session token (for re-authentication checks)
     pub fn session_token(&self) -> &str {
         &self.session_token
@@ -625,5 +672,70 @@ impl RugplayClient {
         if let Some(ref cache) = self.cache {
             cache.invalidate(symbol);
         }
+    }
+
+    /// Get comments for a coin
+    #[instrument(skip(self))]
+    pub async fn get_coin_comments(&self, symbol: &str) -> Result<rugplay_core::CoinCommentsResponse> {
+        let url = format!("{}/coin/{}/comments", API_BASE, symbol);
+        debug!("Fetching comments for {}", symbol);
+
+        let response = self
+            .http
+            .get(&url)
+            .headers(self.default_headers())
+            .send()
+            .await?;
+
+        if let Some(err) = Self::check_auth_error(&response) {
+            return Err(err);
+        }
+
+        let response = response.error_for_status().map_err(|e| {
+            error!("Comments request failed: {}", e);
+            Error::ApiError(e.to_string())
+        })?;
+
+        let data: rugplay_core::CoinCommentsResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse comments response: {}", e);
+            Error::InvalidData(e.to_string())
+        })?;
+
+        debug!("Fetched {} comments for {}", data.comments.len(), symbol);
+        Ok(data)
+    }
+
+    /// Post a comment on a coin
+    #[instrument(skip(self))]
+    pub async fn post_coin_comment(&self, symbol: &str, content: &str) -> Result<rugplay_core::CoinComment> {
+        let url = format!("{}/coin/{}/comments", API_BASE, symbol);
+        debug!("Posting comment on {}", symbol);
+
+        let body = serde_json::json!({ "content": content });
+
+        let response = self
+            .http
+            .post(&url)
+            .headers(self.default_headers())
+            .json(&body)
+            .send()
+            .await?;
+
+        if let Some(err) = Self::check_auth_error(&response) {
+            return Err(err);
+        }
+
+        let response = response.error_for_status().map_err(|e| {
+            error!("Post comment request failed: {}", e);
+            Error::ApiError(e.to_string())
+        })?;
+
+        let data: rugplay_core::PostCommentResponse = response.json().await.map_err(|e| {
+            error!("Failed to parse post comment response: {}", e);
+            Error::InvalidData(e.to_string())
+        })?;
+
+        debug!("Comment posted on {} by user {}", symbol, data.comment.user_username);
+        Ok(data.comment)
     }
 }

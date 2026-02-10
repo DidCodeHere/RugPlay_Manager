@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 
 export interface InboxNotification {
   id: number
-  type: 'sentinel' | 'sniper' | 'harvester' | 'trade' | 'risk' | 'mirror'
+  type: 'sentinel' | 'sniper' | 'harvester' | 'trade' | 'risk' | 'mirror' | 'dipbuyer'
   title: string
   description: string
   timestamp: number
@@ -18,6 +18,7 @@ const TYPE_ICONS: Record<InboxNotification['type'], React.ReactNode> = {
   trade: <ArrowRightLeft className="w-4 h-4 text-purple-400" />,
   risk: <AlertTriangle className="w-4 h-4 text-rose-400" />,
   mirror: <ArrowRightLeft className="w-4 h-4 text-cyan-400" />,
+  dipbuyer: <ArrowRightLeft className="w-4 h-4 text-green-400" />,
 }
 
 export function NotificationInbox() {
@@ -29,11 +30,17 @@ export function NotificationInbox() {
   const unreadCount = notifications.filter(n => !n.read).length
 
   const addNotification = useCallback((type: InboxNotification['type'], title: string, description: string) => {
-    idRef.current += 1
-    setNotifications(prev => [
-      { id: idRef.current, type, title, description, timestamp: Date.now(), read: false },
-      ...prev,
-    ].slice(0, 50)) // Keep last 50
+    setNotifications(prev => {
+      // Deduplicate: skip if most recent entry has same title and is within 500ms
+      if (prev.length > 0 && prev[0].title === title && Date.now() - prev[0].timestamp < 500) {
+        return prev
+      }
+      idRef.current += 1
+      return [
+        { id: idRef.current, type, title, description, timestamp: Date.now(), read: false },
+        ...prev,
+      ].slice(0, 50)
+    })
   }, [])
 
   // Listen for all events

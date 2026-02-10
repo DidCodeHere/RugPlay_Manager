@@ -12,7 +12,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/Built_with-Rust-f74c00?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![Tauri 2.0](https://img.shields.io/badge/Tauri-2.0-24c8db?style=for-the-badge&logo=tauri)](https://v2.tauri.app/)
-[![Platform](https://img.shields.io/badge/Platform-Windows-0078d4?style=for-the-badge&logo=windows)](https://github.com/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-0078d4?style=for-the-badge&logo=windows)](https://github.com/)
 [![Open Source](https://img.shields.io/badge/Open_Source-100%25-10b981?style=for-the-badge&logo=opensourceinitiative)](https://github.com/)
 
 <br />
@@ -45,19 +45,20 @@
 
 ## What is RugPlay Manager?
 
-**RugPlay Manager** is a free, open-source Windows desktop application that automates trading on [Rugplay.com](https://rugplay.com) — the popular cryptocurrency trading simulator created by [FaceDev](https://www.youtube.com/@FaceDevStuff).
+**RugPlay Manager** is a free, open-source desktop application for **Windows and Linux** that automates trading on [Rugplay.com](https://rugplay.com) — the popular cryptocurrency trading simulator created by [FaceDev](https://www.youtube.com/@FaceDevStuff).
 
 > **Rugplay** is a risk-free crypto simulator where you trade with virtual currency. RugPlay Manager helps you get the most out of this experience by automating strategies, protecting your portfolio, and copying successful traders — all while keeping your account secure.
 
 ### Why RugPlay Manager?
 
-| Problem                                   | Solution                                                         |
-| ----------------------------------------- | ---------------------------------------------------------------- |
-| Missing profitable trades while you sleep | **Sniper Bot** — Auto-buys new coins the instant they launch     |
-| Watching profits evaporate                | **Sentinel** — Automated Stop-Loss, Take-Profit & Trailing Stops |
-| Can't keep up with whale traders          | **Mirror Trading** — Copy top traders' moves in real-time        |
-| Forgetting to claim daily rewards         | **Harvester** — Auto-claims your 12h rewards on schedule         |
-| Can't monitor trades on the go            | **Mobile Access** — Control everything from your phone           |
+| Problem                                   | Solution                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------- |
+| Missing profitable trades while you sleep | **Sniper Bot** — Auto-buys new coins the instant they launch         |
+| Watching profits evaporate                | **Sentinel** — Automated Stop-Loss, Take-Profit & Trailing Stops     |
+| Can't keep up with whale traders          | **Mirror Trading** — Copy top traders' moves in real-time            |
+| Forgetting to claim daily rewards         | **Harvester** — Auto-claims your 12h rewards on schedule             |
+| Missing dip-buying opportunities          | **Dip Buyer** — Signal-scored dip buying with per-tier coin settings |
+| Can't monitor trades on the go            | **Mobile Access** — Control everything from your phone               |
 
 ---
 
@@ -72,9 +73,13 @@
 |    **Sentinel**    |       Stop-Loss / Take-Profit / Trailing Stop automation        |  Live  |
 | **Mirror Trading** |    Copy whale traders' buys & sells, scaled to your bankroll    |  Live  |
 |   **Harvester**    |                Automatic 12-hour reward claiming                |  Live  |
+|   **Dip Buyer**    |      Signal-scored dip buying with per-tier coin settings       |  Live  |
+| **Automation Log** |     Centralized log of all automated trades across modules      |  Live  |
 |   **Live Feed**    |          Real-time trade feed showing market activity           |  Live  |
 | **Market Browser** |       Browse, search & filter all coins with live prices        |  Live  |
 |   **Portfolio**    |            Detailed holdings view with P&L per coin             |  Live  |
+| **User Profiles**  |    Multi-account support with profile switching & reputation    |  Live  |
+|  **Leaderboard**   |     Top traders ranked by net worth, losses, and rug pulls      |  Live  |
 | **Mobile Remote**  |   Control & monitor your bot from any phone via secure tunnel   |  Live  |
 |    **Settings**    |     Per-module configuration with risk management controls      |  Live  |
 
@@ -173,10 +178,14 @@
 ### Quick Start (Recommended)
 
 1. **Download** the latest installer from the [**Releases Page**](../../releases/latest)
-2. **Run** `RugPlay Manager_x64-setup.exe` and follow the setup wizard
-3. **Launch** RugPlay Manager from the Start Menu or Desktop shortcut
-4. **Enter** your Rugplay session token (see below)
-5. **Start trading**
+   - **Windows:** `RugPlay Manager_1.0.0_x64-setup.exe` (NSIS) or `.msi`
+   - **Linux:** `RugPlay Manager_1.0.0_amd64.deb` (Debian/Ubuntu) or `.AppImage` (any distro)
+2. **Install and launch** the application
+   - Windows: Run the `.exe` installer and follow the setup wizard
+   - Linux (deb): `sudo dpkg -i "RugPlay Manager_1.0.0_amd64.deb"`
+   - Linux (AppImage): `chmod +x *.AppImage && ./"RugPlay Manager_1.0.0_amd64.AppImage"`
+3. **Enter** your Rugplay session token (see below)
+4. **Start trading**
 
 ### Getting Your Session Token
 
@@ -193,12 +202,12 @@ RugPlay Manager needs your session cookie to interact with Rugplay on your behal
 
 ### System Requirements
 
-| Requirement  |             Minimum              |
-| :----------: | :------------------------------: |
-|    **OS**    |   Windows 10 (64-bit) or later   |
-|   **RAM**    |               4 GB               |
-|   **Disk**   |              100 MB              |
-| **Internet** | Required (to connect to Rugplay) |
+| Requirement  |                    Minimum                    |
+| :----------: | :-------------------------------------------: |
+|    **OS**    | Windows 10+ (64-bit) or Linux (x86_64, glibc) |
+|   **RAM**    |                     4 GB                      |
+|   **Disk**   |                    100 MB                     |
+| **Internet** |       Required (to connect to Rugplay)        |
 
 > **Detailed installation guide:** [docs/INSTALLATION.md](docs/INSTALLATION.md)
 
@@ -232,7 +241,10 @@ cargo tauri dev
 cargo tauri build
 ```
 
-The compiled executable will be in `target/release/`. Installers (MSI and NSIS) will be in `target/release/bundle/`.
+The compiled executable will be in `target/release/`. Installers will be in `target/release/bundle/`:
+
+- **Windows:** `bundle/nsis/` (NSIS installer) and `bundle/msi/` (MSI)
+- **Linux:** `bundle/deb/` (Debian package) and `bundle/appimage/` (AppImage)
 
 > **Detailed build guide with troubleshooting:** [docs/BUILDING.md](docs/BUILDING.md)
 
@@ -298,7 +310,7 @@ We know that giving any application your session token is a big ask. That's exac
 
 1. **Read the source code** — Every file is here in this repo
 2. **Press F12 while running** — Open DevTools and watch the Network tab. You'll see every single HTTP request the app makes — all going to `rugplay.com` and nowhere else
-3. **Check your firewall** — Monitor outbound connections. The only destination is `rugplay.com` (and `bore.pub` only if you enable Mobile Access)
+3. **Check your firewall** — Monitor outbound connections. The only destination is `rugplay.com` (and `trycloudflare.com` only if you enable Mobile Access)
 4. **Build from source** — Don't trust our `.exe`? Clone the repo, read the code, and [build it yourself](#build-from-source)
 5. **Search for exfiltration** — `grep -r "fetch\|http\|request" crates/` — every network call is to Rugplay's API
 
@@ -339,7 +351,7 @@ We've designed RugPlay Manager to be as respectful as possible — it doesn't ex
 <details>
 <summary><b>Does this work on Mac / Linux?</b></summary>
 
-Currently, RugPlay Manager is built and tested for **Windows only**. Since it's built on Tauri (which supports cross-platform), Mac/Linux support is technically possible — PRs welcome!
+RugPlay Manager officially supports **Windows** and **Linux** (x86_64). Download the `.deb` or `.AppImage` from the Releases page for Linux. macOS support is technically possible since the app is built on Tauri — PRs welcome!
 
 </details>
 

@@ -9,6 +9,7 @@
 
 use crate::AppState;
 use crate::notifications::NotificationHandle;
+use crate::save_automation_log;
 use rugplay_networking::RugplayClient;
 use rugplay_persistence::sqlite;
 use serde::Serialize;
@@ -299,6 +300,20 @@ async fn harvester_loop(
                                     claim_response.login_streak,
                                 ).await;
                             }
+
+                            save_automation_log(
+                                &app_handle,
+                                "harvester",
+                                "REWARD",
+                                &format!("Reward ({})", profile.username),
+                                "CLAIM",
+                                claim_response.reward_amount,
+                                &serde_json::json!({
+                                    "username": profile.username,
+                                    "loginStreak": claim_response.login_streak,
+                                    "newBalance": claim_response.new_balance,
+                                }).to_string(),
+                            ).await;
                         }
                         Err(e) => {
                             let err_str = e.to_string();

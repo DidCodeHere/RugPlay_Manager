@@ -12,6 +12,7 @@ import {
   Ban,
 } from 'lucide-react'
 import type { SniperConfig } from '@/lib/types'
+import { ToggleSwitch } from '@/components/ui/FormattedInput'
 
 interface SniperTabProps {
   config: SniperConfig | null
@@ -32,6 +33,7 @@ const DEFAULT_SNIPER_CONFIG: SniperConfig = {
   minLiquidityUsd: 0,
   maxDailySpendUsd: 0,
   pollIntervalSecs: 0,
+  minCoinAgeSecs: 0,
 }
 
 export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
@@ -71,8 +73,8 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
 
         <div className="grid grid-cols-2 gap-4">
           {/* Buy Amount */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-emerald-400" />
               Buy Amount per Snipe
             </label>
@@ -84,15 +86,15 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
                 step="100"
                 value={c.buyAmountUsd}
                 onChange={e => update('buyAmountUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">USD to spend on each new coin</p>
+            <p className="form-hint">USD to spend on each new coin</p>
           </div>
 
           {/* Daily Spend Limit */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Ban className="w-4 h-4 text-amber-400" />
               Daily Spend Limit
             </label>
@@ -104,10 +106,10 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
                 step="500"
                 value={c.maxDailySpendUsd}
                 onChange={e => update('maxDailySpendUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">Max USD via sniper per 24h (0 = unlimited)</p>
+            <p className="form-hint">Max USD via sniper per 24h (0 = unlimited)</p>
           </div>
         </div>
       </div>
@@ -124,8 +126,8 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
 
         <div className="grid grid-cols-2 gap-4">
           {/* Max Market Cap */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-blue-400" />
               Max Market Cap
             </label>
@@ -137,15 +139,15 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
                 step="5000"
                 value={c.maxMarketCapUsd}
                 onChange={e => update('maxMarketCapUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">Skip coins above this market cap (0 = no limit)</p>
+            <p className="form-hint">Skip coins above this market cap (0 = no limit)</p>
           </div>
 
           {/* Max Coin Age */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Clock className="w-4 h-4 text-purple-400" />
               Max Coin Age
             </label>
@@ -156,18 +158,18 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
                 step="30"
                 value={c.maxCoinAgeSecs}
                 onChange={e => update('maxCoinAgeSecs', parseInt(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
               <span className="text-foreground-muted text-sm">sec</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Only snipe coins created within this many seconds (0 = no limit)
             </p>
           </div>
 
           {/* Min Liquidity */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Droplets className="w-4 h-4 text-cyan-400" />
               Min Liquidity
             </label>
@@ -179,10 +181,10 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
                 step="100"
                 value={c.minLiquidityUsd}
                 onChange={e => update('minLiquidityUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Minimum pool liquidity in USD (0 = no filter)
             </p>
           </div>
@@ -196,9 +198,9 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
           <h2 className="text-lg font-semibold">Poll Interval</h2>
         </div>
 
-        <div className="p-4 rounded-lg bg-background">
+        <div className="form-field">
           <div className="flex items-center justify-between mb-2">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted">
+            <label className="form-label">
               <Timer className="w-4 h-4 text-blue-400" />
               Check for New Coins Every
             </label>
@@ -215,7 +217,7 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
             }}
             className="w-full accent-emerald-500"
           />
-          <div className="flex justify-between text-xs text-foreground-muted mt-1">
+          <div className="flex justify-between form-hint">
             <span>5s (aggressive)</span>
             <span>60s (conservative)</span>
           </div>
@@ -235,48 +237,37 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
           <h2 className="text-lg font-semibold">Auto-Sentinel for Sniped Coins</h2>
         </div>
 
-        <div className="flex items-center justify-between p-4 rounded-lg bg-background mb-4">
+        <div className="flex items-center justify-between form-field mb-4">
           <div>
             <div className="font-medium">Create Sentinel on Snipe</div>
             <p className="text-sm text-foreground-muted mt-1">
               Automatically create a sentinel when a new coin is sniped
             </p>
           </div>
-          <button
-            onClick={() => update('autoCreateSentinel', !c.autoCreateSentinel)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              c.autoCreateSentinel ? 'bg-emerald-600' : 'bg-zinc-600'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                c.autoCreateSentinel ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+          <ToggleSwitch enabled={c.autoCreateSentinel} onChange={() => update('autoCreateSentinel', !c.autoCreateSentinel)} />
         </div>
 
         {c.autoCreateSentinel && (
           <div className="grid grid-cols-3 gap-3">
-            <div className="p-3 rounded-lg bg-background">
+            <div className="form-field">
               <label className="text-xs text-foreground-muted mb-1 block">Stop Loss %</label>
               <input
                 type="number"
                 value={c.stopLossPct}
                 onChange={e => update('stopLossPct', parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                className="input"
               />
             </div>
-            <div className="p-3 rounded-lg bg-background">
+            <div className="form-field">
               <label className="text-xs text-foreground-muted mb-1 block">Take Profit %</label>
               <input
                 type="number"
                 value={c.takeProfitPct}
                 onChange={e => update('takeProfitPct', parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                className="input"
               />
             </div>
-            <div className="p-3 rounded-lg bg-background">
+            <div className="form-field">
               <label className="text-xs text-foreground-muted mb-1 block">Trailing Stop %</label>
               <input
                 type="number"
@@ -285,7 +276,7 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
                   update('trailingStopPct', e.target.value ? parseFloat(e.target.value) : null)
                 }
                 placeholder="Off"
-                className="w-full px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-500"
+                className="input"
               />
             </div>
           </div>
@@ -308,7 +299,7 @@ export function SniperTab({ config, setConfig, onChanged }: SniperTabProps) {
             value={newCreator}
             onChange={e => setNewCreator(e.target.value)}
             placeholder="Enter creator username"
-            className="flex-1 px-3 py-2 rounded-lg bg-background border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+            className="input flex-1"
             onKeyDown={e => {
               if (e.key === 'Enter') addBlacklistedCreator()
             }}

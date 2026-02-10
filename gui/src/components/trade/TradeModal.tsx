@@ -209,7 +209,7 @@ export function TradeModal({
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full px-4 py-3 rounded-lg bg-background border border-background-tertiary focus:border-blue-500 focus:outline-none text-lg font-medium"
+                    className="input text-lg font-medium py-3"
                     min="0"
                     step={isBuy ? '0.01' : '0.00000001'}
                     disabled={loading}

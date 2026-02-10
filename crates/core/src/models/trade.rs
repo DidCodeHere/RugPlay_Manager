@@ -65,10 +65,11 @@ pub struct Transaction {
 #[serde(rename_all = "camelCase")]
 pub struct ApiTransactionsResponse {
     pub transactions: Vec<ApiTransaction>,
-    /// Total number of transactions (API returns this as a string)
     #[serde(deserialize_with = "deserialize_string_or_number")]
     pub total: u32,
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub page: u32,
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub limit: u32,
 }
 
@@ -79,14 +80,17 @@ pub struct ApiTransaction {
     pub id: i64,
     #[serde(rename(deserialize = "type"))]
     pub trade_type: String,
+    #[serde(default, deserialize_with = "deserialize_f64_lenient")]
     pub quantity: f64,
+    #[serde(default, deserialize_with = "deserialize_f64_lenient")]
     pub price_per_coin: f64,
+    #[serde(default, deserialize_with = "deserialize_f64_lenient")]
     pub total_base_currency_amount: f64,
     pub timestamp: String,
     #[serde(default)]
-    pub recipient_user_id: Option<String>,
+    pub recipient_user_id: Option<serde_json::Value>,
     #[serde(default)]
-    pub sender_user_id: Option<String>,
+    pub sender_user_id: Option<serde_json::Value>,
     #[serde(default)]
     pub coin: Option<ApiTransactionCoin>,
     #[serde(default)]
@@ -105,11 +109,56 @@ pub struct ApiTransaction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiTransactionCoin {
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     pub id: u32,
     pub name: String,
     pub symbol: String,
     #[serde(default)]
     pub icon: Option<String>,
+}
+
+/// Deserialize an f64 that may arrive as a number, string, or null
+fn deserialize_f64_lenient<'de, D>(deserializer: D) -> std::result::Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+
+    struct F64Lenient;
+
+    impl<'de> de::Visitor<'de> for F64Lenient {
+        type Value = f64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a number, string, or null")
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> std::result::Result<f64, E> {
+            Ok(v)
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> std::result::Result<f64, E> {
+            Ok(v as f64)
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> std::result::Result<f64, E> {
+            Ok(v as f64)
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<f64, E> {
+            v.parse::<f64>().map_err(de::Error::custom)
+        }
+
+        fn visit_none<E: de::Error>(self) -> std::result::Result<f64, E> {
+            Ok(0.0)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> std::result::Result<f64, E> {
+            Ok(0.0)
+        }
+    }
+
+    deserializer.deserialize_any(F64Lenient)
 }
 
 /// Deserialize a value that may be a string or number into u32

@@ -273,7 +273,7 @@ export function SettingsPage() {
                   max="100"
                   value={settings.sentinelDefaults.stopLossPct}
                   onChange={(e) => updateSentinelDefault('stopLossPct', parseFloat(e.target.value) || 0)}
-                  className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                  className="input flex-1"
                 />
                 <Percent className="w-4 h-4 text-foreground-muted" />
               </div>
@@ -295,7 +295,7 @@ export function SettingsPage() {
                   max="10000"
                   value={settings.sentinelDefaults.takeProfitPct}
                   onChange={(e) => updateSentinelDefault('takeProfitPct', parseFloat(e.target.value) || 0)}
-                  className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                  className="input flex-1"
                 />
                 <Percent className="w-4 h-4 text-foreground-muted" />
               </div>
@@ -323,7 +323,7 @@ export function SettingsPage() {
                     )
                   }
                   placeholder="Disabled"
-                  className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+                  className="input flex-1"
                 />
                 <Percent className="w-4 h-4 text-foreground-muted" />
               </div>
@@ -345,7 +345,7 @@ export function SettingsPage() {
                   max="100"
                   value={settings.sentinelDefaults.sellPercentage}
                   onChange={(e) => updateSentinelDefault('sellPercentage', parseFloat(e.target.value) || 100)}
-                  className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                  className="input flex-1"
                 />
                 <Percent className="w-4 h-4 text-foreground-muted" />
               </div>
@@ -374,7 +374,7 @@ export function SettingsPage() {
             value={newBlacklistCoin}
             onChange={(e) => setNewBlacklistCoin(e.target.value.toUpperCase())}
             placeholder="Enter coin symbol (e.g., PEPE)"
-            className="flex-1 px-3 py-2 rounded-lg bg-background border border-zinc-700 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+            className="input flex-1"
             onKeyDown={(e) => {
               if (e.key === 'Enter') addBlacklistCoin()
             }}
@@ -439,7 +439,7 @@ export function SettingsPage() {
                   setRiskLimits(prev => ({ ...prev, maxPositionUsd: parseFloat(e.target.value) || 0 }))
                   setHasChanges(true)
                 }}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
             <p className="text-xs text-foreground-muted mt-1">
@@ -463,7 +463,7 @@ export function SettingsPage() {
                   setRiskLimits(prev => ({ ...prev, maxDailyTradesCount: parseInt(e.target.value) || 0 }))
                   setHasChanges(true)
                 }}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
             <p className="text-xs text-foreground-muted mt-1">
@@ -488,7 +488,7 @@ export function SettingsPage() {
                   setRiskLimits(prev => ({ ...prev, maxDailyVolumeUsd: parseFloat(e.target.value) || 0 }))
                   setHasChanges(true)
                 }}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
             <p className="text-xs text-foreground-muted mt-1">
@@ -512,7 +512,7 @@ export function SettingsPage() {
                   setRiskLimits(prev => ({ ...prev, cooldownAfterLossSecs: parseInt(e.target.value) || 0 }))
                   setHasChanges(true)
                 }}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
               <span className="text-foreground-muted text-sm">sec</span>
             </div>

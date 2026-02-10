@@ -567,10 +567,39 @@ async fn execute_single_trade(
         amount: adjusted_amount,
     };
 
-    let response = client
+    let result = client
         .trade(&order.symbol, request)
-        .await
-        .map_err(|e| format!("Trade API error: {}", e))?;
+        .await;
+
+    // Handle pool token cap: if a sell exceeds 99.5% of pool tokens,
+    // the server returns the max sellable amount — retry with that cap
+    let response = match result {
+        Err(ref e) if matches!(order.trade_type, TradeType::Sell) => {
+            let err_str = e.to_string();
+            if let Some(capped) = parse_max_sellable(&err_str) {
+                let capped = truncate_to_8_decimals(capped);
+                if capped > 0.0 && capped < adjusted_amount {
+                    warn!(
+                        "Sell {} of {} exceeds pool cap, retrying with max sellable: {}",
+                        adjusted_amount, order.symbol, capped
+                    );
+                    let capped_request = TradeRequest {
+                        trade_type: TradeType::Sell,
+                        amount: capped,
+                    };
+                    client.trade(&order.symbol, capped_request)
+                        .await
+                        .map_err(|e| format!("Trade API error: {}", e))?
+                } else {
+                    return Err(format!("Trade API error: {}", e));
+                }
+            } else {
+                return Err(format!("Trade API error: {}", e));
+            }
+        }
+        Err(e) => return Err(format!("Trade API error: {}", e)),
+        Ok(resp) => resp,
+    };
 
     if !response.success {
         return Err("Trade was not successful".to_string());
@@ -644,4 +673,20 @@ async fn save_daily_tracker(app_handle: &tauri::AppHandle, tracker: &DailyTracke
     .await;
 
     debug!("Daily tracker persisted ({} trades)", tracker.trades.len());
+}
+
+/// Parse the max sellable token amount from a pool cap error message.
+/// Example: `"Cannot sell more than 99.5% of pool tokens. Max sellable: 146960488 tokens"`
+fn parse_max_sellable(error: &str) -> Option<f64> {
+    if !error.contains("Max sellable:") {
+        return None;
+    }
+    error
+        .split("Max sellable:")
+        .nth(1)?
+        .trim()
+        .split_whitespace()
+        .next()?
+        .parse::<f64>()
+        .ok()
 }

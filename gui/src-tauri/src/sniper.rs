@@ -7,6 +7,7 @@
 use crate::notifications::NotificationHandle;
 use crate::trade_executor::{TradeExecutorHandle, TradePriority};
 use crate::AppState;
+use crate::save_automation_log;
 use rugplay_core::TradeType;
 use rugplay_networking::RugplayClient;
 use rugplay_persistence::sqlite;
@@ -50,7 +51,12 @@ pub struct SniperConfig {
     /// Polling interval in seconds (0 = use default 15s)
     #[serde(default)]
     pub poll_interval_secs: u64,
+    /// Minimum coin age in seconds before buying (creator cooldown buffer, default 65s)
+    #[serde(default = "default_min_coin_age_secs")]
+    pub min_coin_age_secs: u64,
 }
+
+fn default_min_coin_age_secs() -> u64 { 65 }
 
 impl Default for SniperConfig {
     fn default() -> Self {
@@ -66,6 +72,7 @@ impl Default for SniperConfig {
             min_liquidity_usd: 0.0,    // disabled by default
             max_daily_spend_usd: 0.0,  // unlimited by default
             poll_interval_secs: 0,     // use default 15s
+            min_coin_age_secs: 65,     // 60s creator period + 5s buffer
         }
     }
 }
@@ -284,12 +291,26 @@ async fn sniper_loop(
                                 continue;
                             }
 
-                            // Check coin age filter
+                            // Check coin age filter (too old)
                             if cfg.max_coin_age_secs > 0 {
                                 if let Some(ref created_str) = coin.created_at {
                                     if let Ok(created) = chrono::DateTime::parse_from_rfc3339(created_str) {
                                         let age_secs = (now - created.with_timezone(&chrono::Utc)).num_seconds();
                                         if age_secs > cfg.max_coin_age_secs as i64 {
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Check creator cooldown (too young — within creator-only period)
+                            if cfg.min_coin_age_secs > 0 {
+                                if let Some(ref created_str) = coin.created_at {
+                                    if let Ok(created) = chrono::DateTime::parse_from_rfc3339(created_str) {
+                                        let age_secs = (now - created.with_timezone(&chrono::Utc)).num_seconds();
+                                        if age_secs < cfg.min_coin_age_secs as i64 {
+                                            debug!("Sniper: skipping {} (age {}s < {}s creator cooldown)", 
+                                                   coin.symbol, age_secs, cfg.min_coin_age_secs);
                                             continue;
                                         }
                                     }
@@ -361,6 +382,31 @@ async fn sniper_loop(
                                     save_sniper_state(&app_handle, total_sniped, last_sniped_at.as_deref()).await;
                                     save_sniped_symbol(&app_handle, &coin.symbol).await;
                                     save_sniped_symbol_timestamp(&app_handle, &coin.symbol).await;
+
+                                    // Persist to snipe_log table
+                                    save_snipe_log_entry(
+                                        &app_handle,
+                                        &coin.symbol,
+                                        &coin.name,
+                                        cfg.buy_amount_usd,
+                                        coin.market_cap,
+                                        response.new_price,
+                                        coin_age,
+                                    ).await;
+
+                                    save_automation_log(
+                                        &app_handle,
+                                        "sniper",
+                                        &coin.symbol,
+                                        &coin.name,
+                                        "BUY",
+                                        cfg.buy_amount_usd,
+                                        &serde_json::json!({
+                                            "marketCap": coin.market_cap,
+                                            "price": response.new_price,
+                                            "coinAgeSecs": coin_age,
+                                        }).to_string(),
+                                    ).await;
 
                                     // Auto-create sentinel if configured
                                     if cfg.auto_create_sentinel {
@@ -441,7 +487,7 @@ async fn create_sentinel_for_snipe(
         _ => return,
     };
 
-    if let Err(e) = sqlite::create_sentinel(
+    if let Err(e) = sqlite::upsert_sentinel(
         db.pool(),
         profile.id,
         symbol,
@@ -731,4 +777,39 @@ pub async fn clear_sniped_symbols(app_handle: &tauri::AppHandle) -> u32 {
 
     info!("Sniper: cleared {} sniped symbols", count);
     count
+}
+
+async fn save_snipe_log_entry(
+    app_handle: &tauri::AppHandle,
+    symbol: &str,
+    coin_name: &str,
+    buy_amount_usd: f64,
+    market_cap: f64,
+    price: f64,
+    coin_age_secs: i64,
+) {
+    let state = app_handle.state::<AppState>();
+    let db_guard = state.db.read().await;
+    let Some(db) = db_guard.as_ref() else { return };
+
+    let profile = match sqlite::get_active_profile(db.pool()).await {
+        Ok(Some(p)) => p,
+        _ => return,
+    };
+
+    let _ = sqlx::query(
+        "INSERT INTO snipe_log (profile_id, symbol, coin_name, buy_amount_usd, market_cap, price, coin_age_secs) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(profile.id)
+    .bind(symbol)
+    .bind(coin_name)
+    .bind(buy_amount_usd)
+    .bind(market_cap)
+    .bind(price)
+    .bind(coin_age_secs)
+    .execute(db.pool())
+    .await;
+
+    debug!("Snipe log entry saved for {}", symbol);
 }

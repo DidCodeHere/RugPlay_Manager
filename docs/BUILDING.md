@@ -53,11 +53,20 @@ npm --version
 
 ### 3. Tauri Prerequisites
 
-Tauri 2.0 requires several system dependencies on Windows:
+Tauri 2.0 requires several system dependencies:
+
+**Windows:**
 
 - **Microsoft Visual Studio C++ Build Tools** — Install from [Visual Studio Downloads](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
   - Select "Desktop development with C++" workload
 - **WebView2** — Usually pre-installed on Windows 10/11. If not, [download here](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+
+**Linux (Debian/Ubuntu):**
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev patchelf libxdo-dev libssl-dev build-essential curl wget
+```
 
 ### 4. Tauri CLI
 
@@ -86,21 +95,33 @@ npm install
 ### Build Release Binary
 
 ```powershell
+# Windows (builds NSIS + MSI installers)
 cargo tauri build
+```
+
+```bash
+# Linux (builds deb + AppImage)
+cargo tauri build --bundles deb,appimage
 ```
 
 This will:
 
 1. Compile all Rust crates (core, networking, engine, persistence, gui)
 2. Build the React frontend (via Vite)
-3. Bundle everything into a native Windows executable
+3. Bundle everything into a native executable with platform installers
 
 The output will be at:
 
 ```
+# Windows
 target/release/rugplay-gui.exe
 target/release/bundle/nsis/RugPlay Manager_<version>_x64-setup.exe
 target/release/bundle/msi/RugPlay Manager_<version>_x64_en-US.msi
+
+# Linux
+target/release/rugplay-gui
+target/release/bundle/deb/RugPlay Manager_<version>_amd64.deb
+target/release/bundle/appimage/RugPlay Manager_<version>_amd64.AppImage
 ```
 
 Build time is typically 3-8 minutes on a modern machine (first build). Subsequent builds are faster due to caching.
@@ -165,14 +186,19 @@ rugplay-manager/
 │   │   └── tauri.conf.json # Tauri configuration
 │   ├── src/                 # React frontend (TypeScript)
 │   │   ├── components/     # React components organized by feature
-│   │   │   ├── auth/       # Authentication screen
+│   │   │   ├── auth/       # Authentication screen, profile management
 │   │   │   ├── dashboard/  # Dashboard overview
 │   │   │   ├── portfolio/  # Holdings view
 │   │   │   ├── market/     # Market browser
+│   │   │   ├── coin/       # Coin detail pages
 │   │   │   ├── feed/       # Live trade feed
 │   │   │   ├── sniper/     # Sniper configuration
 │   │   │   ├── sentinel/   # Sentinel management
 │   │   │   ├── mirror/     # Mirror trading setup
+│   │   │   ├── dipbuyer/   # Dip buyer coin tiers, signals & history
+│   │   │   ├── automation/ # Automation log viewer
+│   │   │   ├── user/       # User profile pages
+│   │   │   ├── leaderboard/# Leaderboard tabs
 │   │   │   ├── mobile/     # Mobile access control
 │   │   │   ├── settings/   # Settings pages
 │   │   │   └── layout/     # Sidebar, Dashboard shell

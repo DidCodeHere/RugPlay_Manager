@@ -6,6 +6,7 @@
 
 use crate::trade_executor::{TradeExecutorHandle, TradePriority};
 use crate::AppState;
+use crate::save_automation_log;
 use rugplay_core::TradeType;
 use rugplay_networking::RugplayClient;
 use rugplay_persistence::sqlite;
@@ -440,6 +441,18 @@ async fn mirror_loop(
                                 "Mirror: successfully mirrored {} {} ${:.2} of {}",
                                 trade.username, trade.trade_type, capped_usd, trade.coin_symbol
                             );
+                            save_automation_log(
+                                &app_handle,
+                                "mirror",
+                                &trade.coin_symbol,
+                                &trade.coin_name,
+                                &trade.trade_type.to_uppercase(),
+                                capped_usd,
+                                &serde_json::json!({
+                                    "whaleUsername": trade.username,
+                                    "whaleAmountUsd": trade.total_value,
+                                }).to_string(),
+                            ).await;
                             true
                         }
                         Err(e) => {

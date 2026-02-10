@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import {
   Smartphone,
   Wifi,
@@ -22,10 +23,16 @@ import {
   Clock,
   Fingerprint,
   Unplug,
+  X,
+  ChevronDown,
 } from 'lucide-react'
+
+type SessionRole = 'viewer' | 'trusted' | 'admin'
 
 interface SessionInfo {
   tokenPrefix: string
+  role: SessionRole
+  label: string
   connectedAt: string
   connectedDuration: string
 }
@@ -36,10 +43,30 @@ interface MobileServerStatus {
   url: string | null
   pin: string
   connectedClients: number
-  controlEnabled: boolean
+  defaultRole: SessionRole
   qrSvg: string | null
   port: number
   sessions: SessionInfo[]
+}
+
+interface MobileConnectionEvent {
+  eventType: string
+  tokenPrefix: string
+  role: SessionRole
+  label: string
+  totalSessions: number
+}
+
+const ROLE_LABELS: Record<SessionRole, string> = {
+  viewer: 'Viewer',
+  trusted: 'Trusted',
+  admin: 'Admin',
+}
+
+const ROLE_COLORS: Record<SessionRole, string> = {
+  viewer: 'text-blue-400 bg-blue-500/15',
+  trusted: 'text-purple-400 bg-purple-500/15',
+  admin: 'text-emerald-400 bg-emerald-500/15',
 }
 
 export function MobileAccessPage() {
@@ -50,6 +77,7 @@ export function MobileAccessPage() {
   const [mode, setMode] = useState<'internet' | 'localWifi'>('internet')
   const [showPin, setShowPin] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [connectionToast, setConnectionToast] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -66,6 +94,20 @@ export function MobileAccessPage() {
     return () => clearInterval(interval)
   }, [fetchStatus])
 
+  useEffect(() => {
+    const unlisten = listen<MobileConnectionEvent>('mobile-connection', (event) => {
+      const ev = event.payload
+      if (ev.eventType === 'connected') {
+        setConnectionToast(`${ev.label} connected as ${ROLE_LABELS[ev.role]}`)
+      } else if (ev.eventType === 'kicked') {
+        setConnectionToast(`Session kicked`)
+      }
+      fetchStatus()
+      setTimeout(() => setConnectionToast(null), 4000)
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [fetchStatus])
+
   const handleStart = async () => {
     setLoading(true)
     setError(null)
@@ -76,8 +118,9 @@ export function MobileAccessPage() {
       })
       setStatus(s)
       if (mode === 'internet') {
-        for (let i = 0; i < 10; i++) {
-          await new Promise(r => setTimeout(r, 1500))
+        // Poll for tunnel URL — first use downloads cloudflared (~10MB) so allow more time
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 2000))
           await fetchStatus()
         }
       }
@@ -109,15 +152,30 @@ export function MobileAccessPage() {
     }
   }
 
-  const handleToggleControl = async () => {
-    if (!status) return
+  const handleSetDefaultRole = async (role: SessionRole) => {
     try {
-      await invoke('set_mobile_control_enabled', {
-        enabled: !status.controlEnabled,
-      })
+      await invoke('set_mobile_default_role', { role })
       await fetchStatus()
     } catch (e: any) {
-      setError(e?.toString() || 'Failed to toggle control')
+      setError(e?.toString() || 'Failed to set default role')
+    }
+  }
+
+  const handleKickSession = async (tokenPrefix: string) => {
+    try {
+      await invoke('kick_mobile_session', { tokenPrefix })
+      await fetchStatus()
+    } catch (e: any) {
+      setError(e?.toString() || 'Failed to kick session')
+    }
+  }
+
+  const handleSetSessionRole = async (tokenPrefix: string, role: SessionRole) => {
+    try {
+      await invoke('set_mobile_session_role', { tokenPrefix, role })
+      await fetchStatus()
+    } catch (e: any) {
+      setError(e?.toString() || 'Failed to set session role')
     }
   }
 
@@ -129,9 +187,9 @@ export function MobileAccessPage() {
   }
 
   const isRunning = status?.running ?? false
-  const hasUrl = status?.url && !status.url.startsWith('Connecting') && !status.url.startsWith('Tunnel failed')
+  const hasUrl = status?.url && !status.url.startsWith('Connecting') && !status.url.startsWith('Tunnel failed') && !status.url.startsWith('Tunnel unavailable')
   const isTunnelConnecting = status?.url?.startsWith('Connecting')
-  const isTunnelFailed = status?.url?.startsWith('Tunnel failed')
+  const isTunnelFailed = status?.url?.startsWith('Tunnel failed') || status?.url?.startsWith('Tunnel unavailable')
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -152,6 +210,13 @@ export function MobileAccessPage() {
         <div className="p-3 rounded-lg bg-sell/10 border border-sell/20 text-sell text-sm flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-xs underline opacity-70 hover:opacity-100 ml-3 shrink-0">Dismiss</button>
+        </div>
+      )}
+
+      {connectionToast && (
+        <div className="p-3 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-300 text-sm flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <Smartphone className="w-4 h-4" />
+          <span>{connectionToast}</span>
         </div>
       )}
 
@@ -193,7 +258,7 @@ export function MobileAccessPage() {
                     <span className="font-semibold text-sm">Internet</span>
                   </div>
                   <p className="text-xs text-foreground-muted leading-relaxed">
-                    Access from anywhere via secure tunnel. Your IP stays hidden.
+                    Access from anywhere via Cloudflare HTTPS tunnel. No account needed.
                   </p>
                 </button>
                 <button
@@ -277,7 +342,7 @@ export function MobileAccessPage() {
                 ) : isTunnelConnecting ? (
                   <div className="flex items-center gap-2 text-amber-400 text-sm">
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Establishing secure tunnel… this may take a few seconds</span>
+                    <span>Setting up Cloudflare tunnel… first time may take longer to download</span>
                   </div>
                 ) : isTunnelFailed ? (
                   <p className="text-sm text-sell">{status?.url}. Try stopping and restarting.</p>
@@ -367,7 +432,7 @@ export function MobileAccessPage() {
                 <div className="w-full max-w-[260px] aspect-square rounded-2xl bg-background-tertiary flex items-center justify-center">
                   <div className="text-center">
                     <RefreshCw className="w-10 h-10 text-violet-400 animate-spin mx-auto mb-3" />
-                    <p className="text-sm text-foreground-muted">Establishing tunnel…</p>
+                    <p className="text-sm text-foreground-muted">Setting up tunnel…</p>
                   </div>
                 </div>
               ) : (
@@ -405,58 +470,82 @@ export function MobileAccessPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {(status?.sessions ?? []).map((session, i) => (
+              {(status?.sessions ?? []).map((session) => (
                 <div
                   key={session.tokenPrefix}
                   className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-background-tertiary"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-blue-500/15 flex items-center justify-center">
-                      <Smartphone className="w-4 h-4 text-blue-400" />
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center ${ROLE_COLORS[session.role]}`}>
+                      <Smartphone className="w-4 h-4" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">Device {i + 1}</span>
+                        <span className="text-sm font-semibold">{session.label}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ROLE_COLORS[session.role]}`}>
+                          {ROLE_LABELS[session.role]}
+                        </span>
                         <span className="w-2 h-2 rounded-full bg-buy" />
                       </div>
                       <div className="flex items-center gap-3 text-xs text-foreground-muted">
                         <span className="flex items-center gap-1">
                           <Fingerprint className="w-3 h-3" />
-                          {session.tokenPrefix}…
+                          {session.tokenPrefix}...
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          Connected {session.connectedDuration}
+                          {session.connectedDuration}
                         </span>
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <select
+                        value={session.role}
+                        onChange={(e) => handleSetSessionRole(session.tokenPrefix, e.target.value as SessionRole)}
+                        className="appearance-none text-xs font-medium bg-background-tertiary border border-background-tertiary rounded-lg px-3 py-1.5 pr-7 text-foreground cursor-pointer hover:border-foreground-muted/30 transition-colors"
+                      >
+                        <option value="viewer">Viewer</option>
+                        <option value="trusted">Trusted</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <ChevronDown className="w-3 h-3 text-foreground-muted absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    </div>
+                    <button
+                      onClick={() => handleKickSession(session.tokenPrefix)}
+                      className="p-1.5 rounded-lg hover:bg-sell/15 text-foreground-muted hover:text-sell transition-colors"
+                      title="Kick session"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Remote Control Toggle */}
+          {/* Default Role for New Connections */}
           <div className="mt-4 pt-4 border-t border-background-tertiary">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">Remote Control</p>
+                <p className="text-sm font-medium">Default Role for New Connections</p>
                 <p className="text-xs text-foreground-muted">
-                  Allow trading actions from mobile (disabled = view-only)
+                  Role assigned when a new device connects with the PIN
                 </p>
               </div>
-              <button
-                onClick={handleToggleControl}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  status?.controlEnabled ? 'bg-buy' : 'bg-background-tertiary'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    status?.controlEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+              <div className="relative">
+                <select
+                  value={status?.defaultRole ?? 'viewer'}
+                  onChange={(e) => handleSetDefaultRole(e.target.value as SessionRole)}
+                  className="appearance-none text-sm font-medium bg-background-tertiary border border-background-tertiary rounded-lg px-4 py-2 pr-8 text-foreground cursor-pointer hover:border-foreground-muted/30 transition-colors"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="trusted">Trusted</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <ChevronDown className="w-4 h-4 text-foreground-muted absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
           </div>
         </div>
@@ -480,14 +569,14 @@ export function MobileAccessPage() {
               {[
                 'Creates a private web server inside the app',
                 <>
-                  <strong className="text-foreground/80">Internet mode:</strong> Uses a secure tunnel (bore.pub) — your real IP is never exposed
+                  <strong className="text-foreground/80">Internet mode:</strong> Uses a Cloudflare Quick Tunnel (HTTPS) — your real IP is never exposed
                 </>,
                 <>
                   <strong className="text-foreground/80">Local WiFi mode:</strong> Only accessible from devices on your same WiFi network
                 </>,
                 'A unique 6-digit PIN is required — changes every restart',
                 'Server stops automatically when the app closes',
-                'Read-only by default — trading requires explicit opt-in',
+                'Role-based access: Viewer (read-only), Trusted, Admin',
               ].map((item, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-blue-400 mt-0.5 shrink-0">•</span>
@@ -532,11 +621,11 @@ export function MobileAccessPage() {
             <ul className="space-y-1.5 text-sm text-foreground-muted">
               {[
                 'Server binds to loopback only (127.0.0.1)',
-                'Your IP never exposed (bore.pub relays)',
+                'Your IP never exposed (Cloudflare HTTPS tunnel)',
                 '6-digit PIN authentication (rotates each start)',
                 'Cryptographic session tokens (24h expiry)',
                 'Max 3 concurrent devices',
-                'Read-only by default',
+                'Viewer role by default (no trading)',
                 'Auto-shutdown with desktop app',
               ].map((item, i) => (
                 <li key={i} className="flex items-center gap-2">

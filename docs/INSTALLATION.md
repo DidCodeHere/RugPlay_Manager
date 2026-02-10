@@ -22,26 +22,62 @@
 ### Step 1: Download
 
 1. Go to the [**Releases Page**](../../releases/latest)
-2. Download the installer:
-   - **Recommended:** `RugPlay Manager_0.1.0_x64-setup.exe` (5.7 MB) — standard Windows installer
-   - **Alternative:** `RugPlay Manager_0.1.0_x64_en-US.msi` (8.4 MB) — for silent/enterprise installs
+2. Download the installer for your platform:
+
+**Windows:**
+
+- **Recommended:** `RugPlay Manager_2.0.1_x64-setup.exe` (6.4 MB) — standard Windows installer
+- **Alternative:** `RugPlay Manager_2.0.1_x64_en-US.msi` (9.4 MB) — for silent/enterprise installs
+
+**Linux:**
+
+- **Debian/Ubuntu:** `RugPlay Manager_2.0.1_amd64.deb` (12 MB)
+- **Any distro:** `RugPlay Manager_2.0.1_amd64.AppImage` (~33 MB) — no installation required
+
 3. **Note:** Your browser or Windows Defender may warn you about downloading an unsigned application. See the [Security FAQ](#windows-defender--smartscreen-warning) below.
 
 ### Step 2: Install
+
+#### Windows
 
 1. Double-click the downloaded `.exe` installer
 2. Follow the setup wizard — choose your install location or use the default
 3. Click **Install** and wait for it to finish
 4. The installer creates a Start Menu entry and optional Desktop shortcut
 
-> **Silent install (MSI):** Run `msiexec /i "RugPlay Manager_0.1.0_x64_en-US.msi" /quiet` from an elevated command prompt.
+> **Silent install (MSI):** Run `msiexec /i "RugPlay Manager_2.0.1_x64_en-US.msi" /quiet` from an elevated command prompt.
+
+#### Linux (Debian/Ubuntu)
+
+```bash
+sudo dpkg -i "RugPlay Manager_2.0.1_amd64.deb"
+```
+
+If you get dependency errors, run:
+
+```bash
+sudo apt-get install -f
+```
+
+Required runtime dependencies: `libwebkit2gtk-4.1-0`, `libgtk-3-0`, `libayatana-appindicator3-1`.
+
+#### Linux (AppImage)
+
+No installation needed — just make it executable and run:
+
+```bash
+chmod +x "RugPlay Manager_2.0.1_amd64.AppImage"
+./"RugPlay Manager_2.0.1_amd64.AppImage"
+```
+
+> **Tip:** Move the AppImage to `~/Applications/` or `/opt/` for a permanent location.
 
 ### Step 3: Run
 
-1. Launch **RugPlay Manager** from the Start Menu or Desktop shortcut
+1. Launch **RugPlay Manager** from the Start Menu (Windows), application menu (Linux), or by running the AppImage
 2. The application will open with the authentication screen
 
-> **Tip:** Pin the app to your taskbar for quick access — right-click the taskbar icon while running and select "Pin to taskbar."
+> **Tip:** Pin the app to your taskbar for quick access.
 
 ---
 
@@ -137,6 +173,8 @@ We recommend starting with **Sentinel** (portfolio protection):
 2. Run the installer — it will upgrade your existing installation in place
 3. Your settings and database (`rugplay.db`) are preserved automatically
 
+> **Linux deb:** Just install the new `.deb` over the old one with `sudo dpkg -i`. **AppImage:** Replace the old file with the new one.
+
 ### What's Preserved on Update
 
 - Your authenticated session
@@ -148,12 +186,22 @@ We recommend starting with **Sentinel** (portfolio protection):
 
 ## Uninstalling
 
-To remove RugPlay Manager:
+### Windows
 
 1. Close the application
 2. Open **Settings > Apps & Features** (or **Add or Remove Programs**)
 3. Find **RugPlay Manager** in the list and click **Uninstall**
 4. _(Optional)_ Delete the local database file `rugplay.db` from the app data directory
+
+### Linux (deb)
+
+```bash
+sudo dpkg -r rugplay-manager
+```
+
+### Linux (AppImage)
+
+Just delete the `.AppImage` file. Optionally remove `~/.local/share/com.rugplay.manager/` to clear stored data.
 
 The uninstaller removes all application files. No background services remain after uninstall.
 
@@ -179,9 +227,11 @@ When running an unsigned installer, Windows may show a SmartScreen warning:
 
 ### Application Won't Start
 
-- Ensure you're running Windows 10 64-bit or later
-- Try running as Administrator (right-click > Run as administrator)
-- Check if WebView2 Runtime is installed — [download here](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+- **Windows:** Ensure you're running Windows 10 64-bit or later
+- **Windows:** Try running as Administrator (right-click > Run as administrator)
+- **Windows:** Check if WebView2 Runtime is installed — [download here](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
+- **Linux:** Ensure required libraries are installed: `sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1`
+- **Linux (AppImage):** Make sure FUSE is installed: `sudo apt install libfuse2`
 
 ### API Errors / Trades Not Executing
 

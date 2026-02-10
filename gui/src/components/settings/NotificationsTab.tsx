@@ -1,5 +1,6 @@
 import { Bell } from 'lucide-react'
 import type { NotificationConfig } from '@/lib/types'
+import { ToggleSwitch } from '@/components/ui/FormattedInput'
 
 interface NotificationsTabProps {
   config: NotificationConfig
@@ -38,7 +39,7 @@ export function NotificationsTab({ config, setConfig, onChanged }: Notifications
           {NOTIFICATION_ITEMS.map(({ key, label, desc }) => (
             <div
               key={key}
-              className={`flex items-center justify-between p-3 rounded-lg bg-background ${
+              className={`flex items-center justify-between form-field ${
                 key !== 'enabled' && !config.enabled ? 'opacity-50 pointer-events-none' : ''
               }`}
             >
@@ -46,18 +47,7 @@ export function NotificationsTab({ config, setConfig, onChanged }: Notifications
                 <div className="font-medium text-sm">{label}</div>
                 <p className="text-xs text-foreground-muted">{desc}</p>
               </div>
-              <button
-                onClick={() => toggle(key)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  config[key] ? 'bg-emerald-600' : 'bg-zinc-600'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    config[key] ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
+              <ToggleSwitch enabled={config[key]} onChange={() => toggle(key)} />
             </div>
           ))}
         </div>

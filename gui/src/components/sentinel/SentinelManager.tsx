@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { 
@@ -23,11 +23,13 @@ import {
   Play,
 } from 'lucide-react'
 import { SentinelForm } from './SentinelForm.tsx'
+import { SentinelDetailModal } from './SentinelDetailModal.tsx'
 import { buildImageUrl } from '@/lib/utils'
 import type { SentinelConfig, CoinHolding, AppSettings, MonitorStatusResponse, SentinelTriggeredEvent, TradeExecutedEvent } from '@/lib/types'
 
 interface SentinelManagerProps {
   holdings?: CoinHolding[]
+  onCoinClick?: (symbol: string) => void
 }
 
 interface SentinelCheckResult {
@@ -46,24 +48,37 @@ const DEFAULT_SENTINEL_SETTINGS = {
   sellPercentage: 100,
 }
 
-export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
+export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }: SentinelManagerProps) {
   const [sentinels, setSentinels] = useState<SentinelConfig[]>([])
+  const [liveHoldings, setLiveHoldings] = useState<CoinHolding[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [selectedHolding, setSelectedHolding] = useState<CoinHolding | null>(null)
   const [creatingBulk, setCreatingBulk] = useState(false)
   const [editingSentinel, setEditingSentinel] = useState<SentinelConfig | null>(null)
+  const [detailSentinel, setDetailSentinel] = useState<SentinelConfig | null>(null)
   const [checkRunning, setCheckRunning] = useState(false)
   const [checkResult, setCheckResult] = useState<SentinelCheckResult | null>(null)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [globalPaused, setGlobalPaused] = useState(false)
   const [applyingAll, setApplyingAll] = useState(false)
   const [togglingAll, setTogglingAll] = useState(false)
-  const hasAutoChecked = useRef(false)
   const [monitorStatus, setMonitorStatus] = useState<MonitorStatusResponse | null>(null)
   const [triggerNotifications, setTriggerNotifications] = useState<SentinelTriggeredEvent[]>([])
   const [tradeNotifications, setTradeNotifications] = useState<TradeExecutedEvent[]>([])
+
+  // Use external holdings as initial seed, but always prefer live data
+  const holdings = liveHoldings.length > 0 ? liveHoldings : externalHoldings
+
+  const fetchLiveHoldings = useCallback(async () => {
+    try {
+      const data = await invoke<{ coinHoldings: CoinHolding[] }>('get_portfolio')
+      setLiveHoldings(data.coinHoldings)
+    } catch (e) {
+      console.error('Failed to fetch live holdings for sentinel:', e)
+    }
+  }, [])
 
   const getSettings = useCallback(async (): Promise<AppSettings['sentinelDefaults']> => {
     // Try backend first
@@ -123,13 +138,13 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
     }
   }, [])
 
-  // Auto-check on first load: sync sentinels with portfolio + run price check
-  const runAutoCheck = useCallback(async () => {
-    if (hasAutoChecked.current) return
-    hasAutoChecked.current = true
+  const refreshAll = useCallback(async () => {
+    await Promise.all([fetchSentinels(), fetchLiveHoldings()])
+  }, [fetchSentinels, fetchLiveHoldings])
 
+  // Auto-check on mount: sync sentinels with portfolio + run price check
+  const runAutoCheck = useCallback(async () => {
     try {
-      // 1. Sync sentinels with portfolio (remove sold, add new)
       const defaults = await getSettings()
       const blacklist = await getBlacklist()
       const syncResult = await invoke<SentinelCheckResult>('sync_sentinels', {
@@ -151,16 +166,17 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
         setCheckResult(checkResult)
       }
 
-      // 3. Refresh sentinel list
-      await fetchSentinels()
+      // 3. Refresh sentinel list AND live holdings
+      await refreshAll()
     } catch (e) {
       console.error('Auto-check failed:', e)
     }
-  }, [fetchSentinels, getSettings, getBlacklist])
+  }, [refreshAll, getSettings, getBlacklist])
 
   useEffect(() => {
     fetchSentinels()
-  }, [fetchSentinels])
+    fetchLiveHoldings()
+  }, [fetchSentinels, fetchLiveHoldings])
 
   // Run auto-check after sentinels are loaded
   useEffect(() => {
@@ -173,15 +189,13 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
   useEffect(() => {
     const unlistenTrigger = listen<SentinelTriggeredEvent>('sentinel-triggered', (event) => {
       setTriggerNotifications(prev => [event.payload, ...prev].slice(0, 10))
-      // Refresh sentinels list when a sentinel triggers
-      fetchSentinels()
+      refreshAll()
     })
 
     const unlistenTrade = listen<TradeExecutedEvent>('trade-executed', (event) => {
       if (event.payload.reason.startsWith('Sentinel')) {
         setTradeNotifications(prev => [event.payload, ...prev].slice(0, 10))
-        // Refresh sentinels after sentinel-initiated trade
-        fetchSentinels()
+        refreshAll()
       }
     })
 
@@ -189,7 +203,7 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
       unlistenTrigger.then(u => u())
       unlistenTrade.then(u => u())
     }
-  }, [fetchSentinels])
+  }, [refreshAll])
 
   // Fetch monitor status
   useEffect(() => {
@@ -250,7 +264,7 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
 
       const result = await invoke<SentinelCheckResult>('run_sentinel_check')
       setCheckResult(result)
-      await fetchSentinels()
+      await refreshAll()
     } catch (e) {
       setError(`Sentinel check failed: ${e}`)
     } finally {
@@ -342,7 +356,12 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
     }
   }
 
-  const protectedSymbols = new Set(sentinels.map(s => s.symbol))
+  // Only count coins as protected if they have an active, non-triggered sentinel
+  const protectedSymbols = new Set(
+    sentinels
+      .filter(s => s.isActive && s.triggeredAt === null)
+      .map(s => s.symbol)
+  )
   const [blacklistArr, setBlacklistArr] = useState<string[]>([])
   useEffect(() => {
     getBlacklist().then(setBlacklistArr)
@@ -745,10 +764,23 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
                 {sentinels.map((sentinel) => (
                   <tr 
                     key={sentinel.id}
-                    onClick={() => setEditingSentinel({ ...sentinel })}
+                    onClick={() => setDetailSentinel({ ...sentinel })}
                     className="border-b border-background-tertiary/50 hover:bg-background-tertiary/30 transition-colors cursor-pointer"
                   >
-                    <td className="px-4 py-3 font-medium">${sentinel.symbol}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <span
+                        className={onCoinClick ? 'hover:text-emerald-400 transition-colors' : ''}
+                        onClick={(e) => {
+                          if (onCoinClick) {
+                            e.stopPropagation()
+                            onCoinClick(sentinel.symbol)
+                          }
+                        }}
+                        title={onCoinClick ? `View ${sentinel.symbol} coin page` : undefined}
+                      >
+                        ${sentinel.symbol}
+                      </span>
+                    </td>
                     <td className="text-right px-4 py-3 text-sm">{formatPrice(sentinel.entryPrice)}</td>
                     <td className="text-right px-4 py-3">
                       {sentinel.stopLossPct !== null ? (
@@ -828,6 +860,20 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
         )}
       </div>
 
+      {/* Sentinel Detail Modal */}
+      {detailSentinel && (
+        <SentinelDetailModal
+          sentinel={detailSentinel}
+          holding={holdings.find(h => h.symbol === detailSentinel.symbol)}
+          onClose={() => setDetailSentinel(null)}
+          onEdit={(s) => {
+            setDetailSentinel(null)
+            setEditingSentinel({ ...s })
+          }}
+          onCoinClick={onCoinClick}
+        />
+      )}
+
       {/* Create Sentinel Form Modal */}
       {showForm && (
         <SentinelForm
@@ -881,7 +927,7 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
                     type="number"
                     value={editingSentinel.stopLossPct}
                     onChange={(e) => setEditingSentinel({ ...editingSentinel, stopLossPct: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-zinc-700 focus:outline-none focus:border-sell text-sm"
+                    className="input text-sm"
                     placeholder="Stop loss %"
                   />
                 )}
@@ -907,7 +953,7 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
                     type="number"
                     value={editingSentinel.takeProfitPct}
                     onChange={(e) => setEditingSentinel({ ...editingSentinel, takeProfitPct: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-zinc-700 focus:outline-none focus:border-buy text-sm"
+                    className="input text-sm"
                     placeholder="Take profit %"
                   />
                 )}
@@ -933,7 +979,7 @@ export function SentinelManager({ holdings = [] }: SentinelManagerProps) {
                     type="number"
                     value={editingSentinel.trailingStopPct}
                     onChange={(e) => setEditingSentinel({ ...editingSentinel, trailingStopPct: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-zinc-700 focus:outline-none focus:border-amber-500 text-sm"
+                    className="input text-sm"
                     placeholder="Trailing stop %"
                   />
                 )}

@@ -9,6 +9,7 @@ import {
   Ban,
 } from 'lucide-react'
 import type { MirrorConfigState } from './SettingsLayout'
+import { ToggleSwitch } from '@/components/ui/FormattedInput'
 
 interface MirrorTabProps {
   config: MirrorConfigState
@@ -38,9 +39,9 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
 
         <div className="grid grid-cols-2 gap-4">
           {/* Scale Factor */}
-          <div className="p-4 rounded-lg bg-background">
+          <div className="form-field">
             <div className="flex items-center justify-between mb-2">
-              <label className="flex items-center gap-2 text-sm text-foreground-muted">
+              <label className="form-label">
                 <Percent className="w-4 h-4 text-emerald-400" />
                 Scale Factor
               </label>
@@ -55,18 +56,18 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
               onChange={e => update('scaleFactor', parseInt(e.target.value) / 100)}
               className="w-full accent-emerald-500"
             />
-            <div className="flex justify-between text-xs text-foreground-muted mt-1">
+            <div className="flex justify-between form-hint">
               <span>1%</span>
               <span>100%</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Percentage of whale's trade to mirror
             </p>
           </div>
 
           {/* Max Trade USD */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-blue-400" />
               Max Trade Size
             </label>
@@ -78,10 +79,10 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
                 step="500"
                 value={config.maxTradeUsd}
                 onChange={e => update('maxTradeUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Cap per mirrored trade regardless of scale
             </p>
           </div>
@@ -97,9 +98,9 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
 
         <div className="grid grid-cols-2 gap-4">
           {/* Poll Interval */}
-          <div className="p-4 rounded-lg bg-background">
+          <div className="form-field">
             <div className="flex items-center justify-between mb-2">
-              <label className="flex items-center gap-2 text-sm text-foreground-muted">
+              <label className="form-label">
                 <Timer className="w-4 h-4 text-blue-400" />
                 Poll Interval
               </label>
@@ -114,7 +115,7 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
               onChange={e => update('pollIntervalSecs', parseInt(e.target.value))}
               className="w-full accent-emerald-500"
             />
-            <div className="flex justify-between text-xs text-foreground-muted mt-1">
+            <div className="flex justify-between form-hint">
               <span>5s (fast)</span>
               <span>30s (slow)</span>
             </div>
@@ -127,8 +128,8 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
           </div>
 
           {/* Max Latency */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Clock className="w-4 h-4 text-amber-400" />
               Max Latency
             </label>
@@ -140,11 +141,11 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
                 step="1"
                 value={config.maxLatencySecs}
                 onChange={e => update('maxLatencySecs', parseInt(e.target.value) || 5)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
               <span className="text-foreground-muted text-sm">sec</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Skip whale trades older than this
             </p>
           </div>
@@ -160,77 +161,55 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
 
         <div className="space-y-3">
           {/* Skip if already held */}
-          <div className="flex items-center justify-between p-4 rounded-lg bg-background">
+          <div className="flex items-center justify-between form-field">
             <div>
               <div className="font-medium text-sm flex items-center gap-2">
                 <Ban className="w-4 h-4 text-amber-400" />
                 Skip If Already Held
               </div>
-              <p className="text-xs text-foreground-muted mt-1">
+              <p className="form-hint">
                 Don't mirror a BUY if you already own the coin
               </p>
             </div>
-            <button
-              onClick={() => update('skipIfAlreadyHeld', !config.skipIfAlreadyHeld)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                config.skipIfAlreadyHeld ? 'bg-emerald-600' : 'bg-zinc-600'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  config.skipIfAlreadyHeld ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            <ToggleSwitch enabled={config.skipIfAlreadyHeld} onChange={() => update('skipIfAlreadyHeld', !config.skipIfAlreadyHeld)} />
           </div>
 
           {/* Auto Sentinel */}
-          <div className="flex items-center justify-between p-4 rounded-lg bg-background">
+          <div className="flex items-center justify-between form-field">
             <div>
               <div className="font-medium text-sm flex items-center gap-2">
                 <Shield className="w-4 h-4 text-emerald-400" />
                 Auto-Create Sentinel
               </div>
-              <p className="text-xs text-foreground-muted mt-1">
+              <p className="form-hint">
                 Create a sentinel for each mirrored buy
               </p>
             </div>
-            <button
-              onClick={() => update('autoCreateSentinel', !config.autoCreateSentinel)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                config.autoCreateSentinel ? 'bg-emerald-600' : 'bg-zinc-600'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  config.autoCreateSentinel ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            <ToggleSwitch enabled={config.autoCreateSentinel} onChange={() => update('autoCreateSentinel', !config.autoCreateSentinel)} />
           </div>
         </div>
 
         {config.autoCreateSentinel && (
           <div className="grid grid-cols-3 gap-3 mt-4">
-            <div className="p-3 rounded-lg bg-background">
+            <div className="form-field">
               <label className="text-xs text-foreground-muted mb-1 block">Stop Loss %</label>
               <input
                 type="number"
                 value={config.stopLossPct}
                 onChange={e => update('stopLossPct', parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                className="input"
               />
             </div>
-            <div className="p-3 rounded-lg bg-background">
+            <div className="form-field">
               <label className="text-xs text-foreground-muted mb-1 block">Take Profit %</label>
               <input
                 type="number"
                 value={config.takeProfitPct}
                 onChange={e => update('takeProfitPct', parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                className="input"
               />
             </div>
-            <div className="p-3 rounded-lg bg-background">
+            <div className="form-field">
               <label className="text-xs text-foreground-muted mb-1 block">Trailing Stop %</label>
               <input
                 type="number"
@@ -239,7 +218,7 @@ export function MirrorTab({ config, setConfig, onChanged }: MirrorTabProps) {
                   update('trailingStopPct', e.target.value ? parseFloat(e.target.value) : null)
                 }
                 placeholder="Off"
-                className="w-full px-2 py-1.5 rounded bg-background-tertiary border border-zinc-700 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-emerald-500"
+                className="input"
               />
             </div>
           </div>

@@ -149,7 +149,7 @@ export function HoldingsTable({ holdings, totalPortfolioValue, onCoinClick }: Ho
             placeholder="Search coins..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 rounded-lg bg-background border border-background-tertiary focus:border-blue-500 focus:outline-none text-sm"
+            className="input w-full pl-9 pr-8 text-sm"
           />
           {searchQuery && (
             <button

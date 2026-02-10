@@ -1,11 +1,10 @@
 //! Tauri commands for the Mobile Access server (Phase 6)
 
-use crate::mobile_server::{ConnectionMode, MobileServerHandle, MobileServerStatus};
+use crate::mobile_server::{ConnectionMode, MobileServerHandle, MobileServerStatus, SessionRole};
 use crate::AppState;
 use tauri::{Manager, State};
 use tracing::info;
 
-/// Start the mobile access server
 #[tauri::command]
 pub async fn start_mobile_server(
     app_handle: tauri::AppHandle,
@@ -27,7 +26,6 @@ pub async fn start_mobile_server(
         .await
 }
 
-/// Stop the mobile access server
 #[tauri::command]
 pub async fn stop_mobile_server(
     handle: State<'_, MobileServerHandle>,
@@ -36,7 +34,6 @@ pub async fn stop_mobile_server(
     handle.stop().await
 }
 
-/// Get the current mobile server status
 #[tauri::command]
 pub async fn get_mobile_server_status(
     handle: State<'_, MobileServerHandle>,
@@ -44,7 +41,6 @@ pub async fn get_mobile_server_status(
     Ok(handle.get_status().await)
 }
 
-/// Regenerate the PIN (forces re-auth on all connected devices)
 #[tauri::command]
 pub async fn regenerate_mobile_pin(
     handle: State<'_, MobileServerHandle>,
@@ -53,12 +49,43 @@ pub async fn regenerate_mobile_pin(
     handle.regenerate_pin().await
 }
 
-/// Enable or disable remote control (trading) from mobile
 #[tauri::command]
-pub async fn set_mobile_control_enabled(
+pub async fn set_mobile_default_role(
     handle: State<'_, MobileServerHandle>,
-    enabled: bool,
-) -> Result<bool, String> {
-    info!("Mobile remote control set to: {}", enabled);
-    handle.set_control_enabled(enabled).await
+    role: String,
+) -> Result<String, String> {
+    let role = match role.to_lowercase().as_str() {
+        "viewer" => SessionRole::Viewer,
+        "trusted" => SessionRole::Trusted,
+        "admin" => SessionRole::Admin,
+        _ => return Err(format!("Invalid role: {}", role)),
+    };
+    info!("Mobile default role set to: {}", role);
+    handle.set_default_role(role).await?;
+    Ok(format!("{}", role))
+}
+
+#[tauri::command]
+pub async fn kick_mobile_session(
+    handle: State<'_, MobileServerHandle>,
+    token_prefix: String,
+) -> Result<(), String> {
+    info!("Kicking mobile session: {}", token_prefix);
+    handle.kick_session(&token_prefix).await
+}
+
+#[tauri::command]
+pub async fn set_mobile_session_role(
+    handle: State<'_, MobileServerHandle>,
+    token_prefix: String,
+    role: String,
+) -> Result<(), String> {
+    let role = match role.to_lowercase().as_str() {
+        "viewer" => SessionRole::Viewer,
+        "trusted" => SessionRole::Trusted,
+        "admin" => SessionRole::Admin,
+        _ => return Err(format!("Invalid role: {}", role)),
+    };
+    info!("Setting session {} role to {}", token_prefix, role);
+    handle.set_session_role(&token_prefix, role).await
 }

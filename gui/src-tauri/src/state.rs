@@ -43,3 +43,41 @@ impl AppState {
         Ok(())
     }
 }
+
+/// Write an entry to the centralized automation_log table.
+/// Called from sniper, sentinel, mirror, harvester, and dipbuyer loops.
+pub async fn save_automation_log(
+    app_handle: &tauri::AppHandle,
+    module: &str,
+    symbol: &str,
+    coin_name: &str,
+    action: &str,
+    amount_usd: f64,
+    details: &str,
+) {
+    use rugplay_persistence::sqlite;
+    use tauri::Manager;
+
+    let state = app_handle.state::<AppState>();
+    let db_guard = state.db.read().await;
+    let Some(db) = db_guard.as_ref() else { return };
+
+    let profile_id = match sqlite::get_active_profile(db.pool()).await {
+        Ok(Some(p)) => p.id,
+        _ => return,
+    };
+
+    let _ = sqlx::query(
+        "INSERT INTO automation_log (profile_id, module, symbol, coin_name, action, amount_usd, details) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(profile_id)
+    .bind(module)
+    .bind(symbol)
+    .bind(coin_name)
+    .bind(action)
+    .bind(amount_usd)
+    .bind(details)
+    .execute(db.pool())
+    .await;
+}

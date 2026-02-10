@@ -35,8 +35,8 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
 
         <div className="grid grid-cols-2 gap-4">
           {/* Max Position Size */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-blue-400" />
               Max Position Size
             </label>
@@ -48,17 +48,17 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
                 step="100"
                 value={limits.maxPositionUsd}
                 onChange={e => update('maxPositionUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Max USD for a single buy order
             </p>
           </div>
 
           {/* Max Daily Trades */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Hash className="w-4 h-4 text-purple-400" />
               Max Daily Trades
             </label>
@@ -68,16 +68,16 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
               step="1"
               value={limits.maxDailyTradesCount}
               onChange={e => update('maxDailyTradesCount', parseInt(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+              className="input"
             />
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Max trades per 24-hour rolling window
             </p>
           </div>
 
           {/* Max Daily Volume */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <DollarSign className="w-4 h-4 text-emerald-400" />
               Max Daily Volume
             </label>
@@ -89,17 +89,17 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
                 step="1000"
                 value={limits.maxDailyVolumeUsd}
                 onChange={e => update('maxDailyVolumeUsd', parseFloat(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Max total USD volume per 24h
             </p>
           </div>
 
           {/* Loss Cooldown */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Timer className="w-4 h-4 text-rose-400" />
               Loss Cooldown
             </label>
@@ -110,11 +110,11 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
                 step="30"
                 value={limits.cooldownAfterLossSecs}
                 onChange={e => update('cooldownAfterLossSecs', parseInt(e.target.value) || 0)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
               <span className="text-foreground-muted text-sm">sec</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Pause buys for N seconds after a loss
             </p>
           </div>
@@ -133,8 +133,8 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
 
         <div className="grid grid-cols-3 gap-4">
           {/* Retry Count */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <RotateCcw className="w-4 h-4 text-blue-400" />
               Retry Count
             </label>
@@ -145,16 +145,16 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
               step="1"
               value={limits.retryCount}
               onChange={e => update('retryCount', parseInt(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+              className="input"
             />
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Times to retry a failed trade (0–5)
             </p>
           </div>
 
           {/* Retry Delay */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Clock className="w-4 h-4 text-amber-400" />
               Retry Backoff
             </label>
@@ -166,18 +166,18 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
                 step="500"
                 value={limits.retryDelayMs}
                 onChange={e => update('retryDelayMs', parseInt(e.target.value) || 1000)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
               <span className="text-foreground-muted text-sm">ms</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Base delay between retries (doubles each attempt)
             </p>
           </div>
 
           {/* Rate Limit */}
-          <div className="p-4 rounded-lg bg-background">
-            <label className="flex items-center gap-2 text-sm text-foreground-muted mb-2">
+          <div className="form-field">
+            <label className="form-label">
               <Timer className="w-4 h-4 text-purple-400" />
               Rate Limit
             </label>
@@ -189,11 +189,11 @@ export function RiskTab({ limits, setLimits, onChanged }: RiskTabProps) {
                 step="100"
                 value={limits.rateLimitMs}
                 onChange={e => update('rateLimitMs', parseInt(e.target.value) || 500)}
-                className="flex-1 px-3 py-2 rounded-lg bg-background-tertiary border border-zinc-700 text-white focus:outline-none focus:border-emerald-500"
+                className="input flex-1"
               />
               <span className="text-foreground-muted text-sm">ms</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
+            <p className="form-hint">
               Minimum delay between consecutive trades
             </p>
           </div>

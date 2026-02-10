@@ -9,6 +9,7 @@ import {
   ChevronDown
 } from 'lucide-react'
 import type { CoinHolding, CreateSentinelRequest, SentinelConfig, AppSettings } from '@/lib/types'
+import { ToggleSwitch } from '@/components/ui/FormattedInput'
 
 interface SentinelFormProps {
   holdings: CoinHolding[]
@@ -148,7 +149,7 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
               <select
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-background border border-background-tertiary focus:border-blue-500 focus:outline-none appearance-none"
+                className="input appearance-none pr-10"
               >
                 <option value="">Select a coin...</option>
                 {holdings.map((h) => (
@@ -169,29 +170,22 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
               step="any"
               value={entryPrice}
               onChange={(e) => setEntryPrice(parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg bg-background border border-background-tertiary focus:border-blue-500 focus:outline-none"
+              className="input"
             />
-            <p className="text-xs text-foreground-muted mt-1">
-              Price used to calculate P&L triggers
-            </p>
+            <p className="form-hint">Price used to calculate P&L triggers</p>
           </div>
 
           {/* Stop Loss */}
-          <div className="p-3 rounded-lg bg-background border border-background-tertiary">
+          <div className="form-field">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <TrendingDown className="w-4 h-4 text-sell" />
                 <span className="font-medium">Stop Loss</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={stopLossEnabled}
-                  onChange={(e) => setStopLossEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-600 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sell"></div>
-              </label>
+              <ToggleSwitch
+                enabled={stopLossEnabled}
+                onChange={setStopLossEnabled}
+              />
             </div>
             {stopLossEnabled && (
               <div className="flex items-center gap-2">
@@ -200,7 +194,7 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
                   type="number"
                   value={Math.abs(stopLossPct)}
                   onChange={(e) => setStopLossPct(-Math.abs(parseFloat(e.target.value) || 0))}
-                  className="w-20 px-2 py-1 rounded bg-background-tertiary border border-background-tertiary focus:border-blue-500 focus:outline-none text-center"
+                  className="input w-20 text-center h-9"
                   min="1"
                   max="100"
                 />
@@ -210,21 +204,16 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
           </div>
 
           {/* Take Profit */}
-          <div className="p-3 rounded-lg bg-background border border-background-tertiary">
+          <div className="form-field">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-buy" />
                 <span className="font-medium">Take Profit</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={takeProfitEnabled}
-                  onChange={(e) => setTakeProfitEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-600 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-buy"></div>
-              </label>
+              <ToggleSwitch
+                enabled={takeProfitEnabled}
+                onChange={setTakeProfitEnabled}
+              />
             </div>
             {takeProfitEnabled && (
               <div className="flex items-center gap-2">
@@ -233,7 +222,7 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
                   type="number"
                   value={takeProfitPct}
                   onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 0)}
-                  className="w-20 px-2 py-1 rounded bg-background-tertiary border border-background-tertiary focus:border-blue-500 focus:outline-none text-center"
+                  className="input w-20 text-center h-9"
                   min="1"
                   max="10000"
                 />
@@ -243,21 +232,16 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
           </div>
 
           {/* Trailing Stop */}
-          <div className="p-3 rounded-lg bg-background border border-background-tertiary">
+          <div className="form-field">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-amber-400" />
                 <span className="font-medium">Trailing Stop</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={trailingStopEnabled}
-                  onChange={(e) => setTrailingStopEnabled(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-gray-600 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
-              </label>
+              <ToggleSwitch
+                enabled={trailingStopEnabled}
+                onChange={setTrailingStopEnabled}
+              />
             </div>
             {trailingStopEnabled && (
               <div className="flex items-center gap-2">
@@ -266,7 +250,7 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
                   type="number"
                   value={trailingStopPct}
                   onChange={(e) => setTrailingStopPct(parseFloat(e.target.value) || 0)}
-                  className="w-20 px-2 py-1 rounded bg-background-tertiary border border-background-tertiary focus:border-blue-500 focus:outline-none text-center"
+                  className="input w-20 text-center h-9"
                   min="1"
                   max="50"
                 />
@@ -289,9 +273,7 @@ export function SentinelForm({ holdings, selectedHolding, onClose, onSuccess }: 
               />
               <span className="w-14 text-right font-medium">{sellPercentage}%</span>
             </div>
-            <p className="text-xs text-foreground-muted mt-1">
-              Percentage of holding to sell when triggered
-            </p>
+            <p className="form-hint">Percentage of holding to sell when triggered</p>
           </div>
 
           {/* Error */}

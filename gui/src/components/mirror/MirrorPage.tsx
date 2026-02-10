@@ -13,6 +13,7 @@ import {
   User,
   Loader2,
 } from 'lucide-react'
+import { FormattedInput, ToggleSwitch } from '@/components/ui/FormattedInput'
 
 // Backend response types matching Rust structs
 
@@ -251,7 +252,7 @@ export function MirrorPage() {
         <h2 className="text-lg font-bold mb-4">Mirror Configuration</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm text-foreground-muted mb-1">
+            <label className="block text-sm text-zinc-400 mb-1">
               Scale Factor (% of whale's trade)
             </label>
             <input
@@ -260,49 +261,45 @@ export function MirrorPage() {
               onChange={(e) =>
                 updateConfig({ scaleFactor: (parseFloat(e.target.value) || 0) / 100 })
               }
-              className="w-full bg-background border border-background-tertiary rounded-lg px-3 py-2 text-sm"
+              className="input"
               min={1}
               max={100}
               step={1}
             />
           </div>
           <div>
-            <label className="block text-sm text-foreground-muted mb-1">
+            <label className="block text-sm text-zinc-400 mb-1">
               Max Trade Size ($)
             </label>
-            <input
-              type="number"
+            <FormattedInput
               value={config.maxTradeUsd}
-              onChange={(e) => updateConfig({ maxTradeUsd: parseFloat(e.target.value) || 0 })}
-              className="w-full bg-background border border-background-tertiary rounded-lg px-3 py-2 text-sm"
+              onChange={(v) => updateConfig({ maxTradeUsd: v })}
+              prefix="$"
               min={10}
               step={100}
             />
           </div>
           <div>
-            <label className="block text-sm text-foreground-muted mb-1">
+            <label className="block text-sm text-zinc-400 mb-1">
               Max Latency (seconds)
             </label>
-            <input
-              type="number"
+            <FormattedInput
               value={config.maxLatencySecs}
-              onChange={(e) => updateConfig({ maxLatencySecs: parseFloat(e.target.value) || 0 })}
-              className="w-full bg-background border border-background-tertiary rounded-lg px-3 py-2 text-sm"
+              onChange={(v) => updateConfig({ maxLatencySecs: Math.round(v) })}
+              suffix="sec"
               min={5}
               max={120}
               step={5}
             />
           </div>
           <div className="flex items-end">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.autoCreateSentinel}
-                onChange={(e) => updateConfig({ autoCreateSentinel: e.target.checked })}
-                className="rounded"
+            <div className="flex items-center gap-3">
+              <ToggleSwitch
+                enabled={config.autoCreateSentinel}
+                onChange={(v) => updateConfig({ autoCreateSentinel: v })}
               />
               <span className="text-sm">Auto-create Sentinel</span>
-            </label>
+            </div>
           </div>
         </div>
       </div>
@@ -320,7 +317,7 @@ export function MirrorPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchWhale()}
             placeholder="Enter username or user ID..."
-            className="flex-1 bg-background border border-background-tertiary rounded-lg px-3 py-2 text-sm"
+            className="input flex-1"
           />
           <button
             onClick={searchWhale}

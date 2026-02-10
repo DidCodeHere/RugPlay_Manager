@@ -21,13 +21,15 @@ interface LiveTradesProps {
   refreshInterval?: number
   /** Callback when a coin symbol is clicked */
   onCoinClick?: (symbol: string) => void
+  /** Callback when a username is clicked */
+  onUserClick?: (userId: string) => void
 }
 
 // Whale threshold constants
 const WHALE_TRADE_THRESHOLD = 10_000    // $10K = whale trade (gold border)
 const MEGA_WHALE_THRESHOLD = 50_000     // $50K = mega whale (pulsing glow)
 
-export function LiveTrades({ compact = false, refreshInterval = 10000, onCoinClick }: LiveTradesProps) {
+export function LiveTrades({ compact = false, refreshInterval = 10000, onCoinClick, onUserClick }: LiveTradesProps) {
   const [trades, setTrades] = useState<RecentTrade[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -283,6 +285,7 @@ export function LiveTrades({ compact = false, refreshInterval = 10000, onCoinCli
                 key={`${trade.timestamp}-${i}`}
                 trade={trade}
                 onCoinClick={onCoinClick}
+                onUserClick={onUserClick}
                 isTracked={trackedWhaleIds.has(trade.userId)}
                 onAddToMirror={addToMirror}
               />
@@ -297,11 +300,13 @@ export function LiveTrades({ compact = false, refreshInterval = 10000, onCoinCli
 function TradeItem({
   trade,
   onCoinClick,
+  onUserClick,
   isTracked,
   onAddToMirror,
 }: {
   trade: RecentTrade
   onCoinClick?: (symbol: string) => void
+  onUserClick?: (userId: string) => void
   isTracked?: boolean
   onAddToMirror?: (userId: string, username: string) => void
 }) {
@@ -354,9 +359,12 @@ function TradeItem({
       } ${isTracked ? 'ring-1 ring-cyan-500/30' : ''}`}
     >
       {/* User Avatar */}
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${
-        isWhale ? 'ring-2 ring-amber-400/50' : 'bg-background-tertiary'
-      }`}>
+      <div
+        onClick={() => onUserClick?.(trade.userId)}
+        className={`w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${
+          isWhale ? 'ring-2 ring-amber-400/50' : 'bg-background-tertiary'
+        } ${onUserClick ? 'cursor-pointer' : ''}`}
+      >
         {userImageUrl ? (
           <img 
             src={userImageUrl} 
@@ -374,7 +382,10 @@ function TradeItem({
       {/* Trade Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className={`font-medium truncate ${isWhale ? 'text-amber-300' : ''}`}>
+          <span
+            onClick={() => onUserClick?.(trade.userId)}
+            className={`font-medium truncate ${isWhale ? 'text-amber-300' : ''} ${onUserClick ? 'cursor-pointer hover:underline' : ''}`}
+          >
             {trade.username}
           </span>
           {isWhale && (

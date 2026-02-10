@@ -1,8 +1,8 @@
-import { Activity, Shield, Crosshair, Sprout, ArrowUpDown } from 'lucide-react'
+import { Activity, Shield, Crosshair, Sprout, ArrowUpDown, TrendingDown } from 'lucide-react'
 
 export interface ActivityItem {
   id: number
-  type: 'sentinel' | 'sniper' | 'harvester' | 'trade' | 'mirror'
+  type: 'sentinel' | 'sniper' | 'harvester' | 'trade' | 'mirror' | 'dipbuyer'
   title: string
   description: string
   timestamp: number
@@ -14,6 +14,7 @@ const typeIcons: Record<ActivityItem['type'], React.ReactNode> = {
   harvester: <Sprout className="w-4 h-4 text-green-400" />,
   trade: <ArrowUpDown className="w-4 h-4 text-blue-400" />,
   mirror: <Activity className="w-4 h-4 text-cyan-400" />,
+  dipbuyer: <TrendingDown className="w-4 h-4 text-purple-400" />,
 }
 
 function timeAgo(ts: number): string {

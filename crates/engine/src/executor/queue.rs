@@ -27,6 +27,7 @@ pub enum TradePriority {
 }
 
 /// Manages trade execution queue
+#[allow(dead_code)]
 pub struct TradeExecutor {
     queue: VecDeque<TradeOrder>,
     tx: Option<mpsc::Sender<TradeOrder>>,

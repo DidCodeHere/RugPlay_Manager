@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 
 /// Database row for profile
 #[derive(Debug, sqlx::FromRow)]
+#[allow(dead_code)]
 struct ProfileRow {
     id: i64,
     username: String,

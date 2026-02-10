@@ -3,6 +3,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rugplay_gui_lib::{commands, AppState};
+use rugplay_gui_lib::dipbuyer::spawn_dipbuyer;
 use rugplay_gui_lib::harvester::spawn_harvester;
 use rugplay_gui_lib::mirror::spawn_mirror;
 use rugplay_gui_lib::mobile_server::MobileServerHandle;
@@ -106,8 +107,12 @@ fn main() {
                 app_handle.manage(sniper_handle);
 
                 // Spawn mirror (whale copy-trading loop)
-                let mirror_handle = spawn_mirror(app_handle.clone(), executor_handle);
+                let mirror_handle = spawn_mirror(app_handle.clone(), executor_handle.clone());
                 app_handle.manage(mirror_handle);
+
+                // Spawn dip buyer (buy dips when non-top holders dump)
+                let dipbuyer_handle = spawn_dipbuyer(app_handle.clone(), executor_handle.clone());
+                app_handle.manage(dipbuyer_handle);
 
                 // Initialize mobile server handle (server starts on user request)
                 let mobile_handle = MobileServerHandle::new();
@@ -135,6 +140,9 @@ fn main() {
             commands::get_coin_with_chart,
             commands::get_coin_holders,
             commands::get_recent_trades,
+            // Comment commands
+            commands::get_coin_comments,
+            commands::post_coin_comment,
             // Trading commands
             commands::execute_trade,
             commands::get_balance,
@@ -149,6 +157,7 @@ fn main() {
             commands::sync_sentinels,
             commands::update_all_sentinels,
             commands::toggle_all_sentinels,
+            commands::purge_blacklisted_sentinels,
             // Sentinel monitor commands
             commands::get_sentinel_monitor_status,
             commands::pause_sentinel_monitor,
@@ -164,6 +173,7 @@ fn main() {
             commands::update_sniper_config,
             commands::clear_sniped_symbols_cmd,
             commands::clear_coin_cache,
+            commands::get_snipe_history,
             // Mirror commands
             commands::get_mirror_status,
             commands::set_mirror_enabled,
@@ -173,6 +183,13 @@ fn main() {
             commands::list_tracked_whales,
             commands::get_whale_profile,
             commands::get_mirror_trades,
+            // Dip Buyer commands
+            commands::get_dipbuyer_status,
+            commands::set_dipbuyer_enabled,
+            commands::update_dipbuyer_config,
+            commands::get_dipbuyer_preset,
+            commands::get_dipbuyer_history,
+            commands::get_automation_log,
             // Risk limit commands
             commands::get_risk_limits,
             commands::set_risk_limits,
@@ -182,6 +199,11 @@ fn main() {
             // App settings commands
             commands::get_app_settings,
             commands::set_app_settings,
+            commands::get_storage_info,
+            commands::clear_automation_logs,
+            commands::clear_triggered_sentinels,
+            commands::clear_transaction_history,
+            commands::vacuum_database,
             // Transaction history commands
             commands::get_transactions,
             commands::get_traded_symbols,
@@ -191,7 +213,15 @@ fn main() {
             commands::stop_mobile_server,
             commands::get_mobile_server_status,
             commands::regenerate_mobile_pin,
-            commands::set_mobile_control_enabled,
+            commands::set_mobile_default_role,
+            commands::kick_mobile_session,
+            commands::set_mobile_session_role,
+            // User profile & leaderboard commands
+            commands::get_user_profile_full,
+            commands::get_leaderboard,
+            commands::report_rug_pull,
+            commands::get_user_reputation,
+            commands::search_users_reputation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
