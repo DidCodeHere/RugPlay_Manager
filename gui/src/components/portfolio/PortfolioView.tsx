@@ -3,19 +3,30 @@ import { invoke } from '@tauri-apps/api/core'
 import { RefreshCw, TrendingUp, TrendingDown, Wallet, DollarSign, PieChart } from 'lucide-react'
 import { HoldingsTable } from './HoldingsTable'
 import { CoinDetailsModal } from './CoinDetailsModal'
-import type { PortfolioResponse, PortfolioSummary, CoinHolding } from '@/lib/types'
+import type { PortfolioResponse, PortfolioSummary, CoinHolding, SentinelConfig } from '@/lib/types'
 
 interface PortfolioViewProps {
   onCoinClick?: (symbol: string) => void
+  onSentinelClick?: (symbol: string) => void
 }
 
-export function PortfolioView({ onCoinClick }: PortfolioViewProps) {
+export function PortfolioView({ onCoinClick, onSentinelClick }: PortfolioViewProps) {
   const [portfolio, setPortfolio] = useState<PortfolioResponse | null>(null)
   const [summary, setSummary] = useState<PortfolioSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [selectedCoin, setSelectedCoin] = useState<CoinHolding | null>(null)
+  const [sentinels, setSentinels] = useState<SentinelConfig[]>([])
+
+  const fetchSentinels = useCallback(async () => {
+    try {
+      const data = await invoke<SentinelConfig[]>('list_sentinels')
+      setSentinels(data)
+    } catch {
+      // Sentinels may not be available
+    }
+  }, [])
 
   const fetchPortfolio = useCallback(async () => {
     try {
@@ -48,7 +59,8 @@ export function PortfolioView({ onCoinClick }: PortfolioViewProps) {
   // Initial load
   useEffect(() => {
     fetchPortfolio()
-  }, [fetchPortfolio])
+    fetchSentinels()
+  }, [fetchPortfolio, fetchSentinels])
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -193,6 +205,8 @@ export function PortfolioView({ onCoinClick }: PortfolioViewProps) {
           <HoldingsTable
             holdings={portfolio?.coinHoldings ?? []}
             totalPortfolioValue={summary?.portfolioValue ?? 0}
+            sentinels={sentinels}
+            onSentinelClick={onSentinelClick}
             onCoinClick={(holding) => {
               if (onCoinClick) {
                 // Navigate to coin detail page

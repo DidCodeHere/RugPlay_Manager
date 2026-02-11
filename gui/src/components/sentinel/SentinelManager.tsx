@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { 
@@ -21,15 +21,21 @@ import {
   Radio,
   Pause,
   Play,
+  ArrowDownRight,
+  ArrowUpRight,
+  Search,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 import { SentinelForm } from './SentinelForm.tsx'
 import { SentinelDetailModal } from './SentinelDetailModal.tsx'
 import { buildImageUrl } from '@/lib/utils'
-import type { SentinelConfig, CoinHolding, AppSettings, MonitorStatusResponse, SentinelTriggeredEvent, TradeExecutedEvent } from '@/lib/types'
+import type { SentinelConfig, CoinHolding, AppSettings, MonitorStatusResponse, SentinelTriggeredEvent, TradeExecutedEvent, TransactionRecord, TransactionListResponse } from '@/lib/types'
 
 interface SentinelManagerProps {
   holdings?: CoinHolding[]
   onCoinClick?: (symbol: string) => void
+  initialSearch?: string
 }
 
 interface SentinelCheckResult {
@@ -48,7 +54,7 @@ const DEFAULT_SENTINEL_SETTINGS = {
   sellPercentage: 100,
 }
 
-export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }: SentinelManagerProps) {
+export function SentinelManager({ holdings: externalHoldings = [], onCoinClick, initialSearch = '' }: SentinelManagerProps) {
   const [sentinels, setSentinels] = useState<SentinelConfig[]>([])
   const [liveHoldings, setLiveHoldings] = useState<CoinHolding[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,6 +73,16 @@ export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }
   const [monitorStatus, setMonitorStatus] = useState<MonitorStatusResponse | null>(null)
   const [triggerNotifications, setTriggerNotifications] = useState<SentinelTriggeredEvent[]>([])
   const [tradeNotifications, setTradeNotifications] = useState<TradeExecutedEvent[]>([])
+
+  // Search, sort and filter state
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+  const [sortField, setSortField] = useState<'symbol' | 'entryPrice' | 'stopLossPct' | 'takeProfitPct' | 'sellPercentage' | 'status'>('symbol')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused' | 'triggered'>('all')
+
+  useEffect(() => {
+    if (initialSearch) setSearchQuery(initialSearch)
+  }, [initialSearch])
 
   // Use external holdings as initial seed, but always prefer live data
   const holdings = liveHoldings.length > 0 ? liveHoldings : externalHoldings
@@ -411,6 +427,102 @@ export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }
     return `$${price.toFixed(2)}`
   }
 
+  // Transaction tooltip state
+  const [tooltipSymbol, setTooltipSymbol] = useState<string | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [tooltipTxs, setTooltipTxs] = useState<TransactionRecord[]>([])
+  const [tooltipLoading, setTooltipLoading] = useState(false)
+  const txCache = useRef<Record<string, TransactionRecord[]>>({})
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleRowMouseEnter = useCallback((symbol: string, e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top })
+
+    hoverTimer.current = setTimeout(async () => {
+      if (txCache.current[symbol]) {
+        setTooltipTxs(txCache.current[symbol])
+        setTooltipSymbol(symbol)
+        return
+      }
+      setTooltipLoading(true)
+      setTooltipSymbol(symbol)
+      try {
+        const resp = await invoke<TransactionListResponse>('get_transactions', {
+          page: 1, limit: 100, tradeType: null, search: symbol,
+        })
+        const filtered = resp.transactions.filter(tx => tx.symbol === symbol)
+        txCache.current[symbol] = filtered
+        setTooltipTxs(filtered)
+      } catch {
+        setTooltipTxs([])
+      } finally {
+        setTooltipLoading(false)
+      }
+    }, 350)
+  }, [])
+
+  const handleRowMouseLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    setTooltipSymbol(null)
+    setTooltipLoading(false)
+  }, [])
+
+  const formatTime = (ts: string) => {
+    const d = new Date(ts)
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const handleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const SortIcon = ({ field }: { field: typeof sortField }) => {
+    if (sortField !== field) return null
+    return sortDir === 'asc'
+      ? <ChevronUp className="w-3 h-3 inline ml-0.5" />
+      : <ChevronDown className="w-3 h-3 inline ml-0.5" />
+  }
+
+  const getStatusKey = (s: SentinelConfig) => {
+    if (s.triggeredAt) return 'triggered'
+    if (s.isActive) return 'active'
+    return 'paused'
+  }
+
+  const filteredSentinels = sentinels
+    .filter(s => {
+      if (searchQuery && !s.symbol.toLowerCase().includes(searchQuery.toLowerCase())) return false
+      if (statusFilter !== 'all' && getStatusKey(s) !== statusFilter) return false
+      return true
+    })
+    .sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1
+      switch (sortField) {
+        case 'symbol':
+          return dir * a.symbol.localeCompare(b.symbol)
+        case 'entryPrice':
+          return dir * (a.entryPrice - b.entryPrice)
+        case 'stopLossPct':
+          return dir * ((a.stopLossPct ?? -Infinity) - (b.stopLossPct ?? -Infinity))
+        case 'takeProfitPct':
+          return dir * ((a.takeProfitPct ?? -Infinity) - (b.takeProfitPct ?? -Infinity))
+        case 'sellPercentage':
+          return dir * (a.sellPercentage - b.sellPercentage)
+        case 'status': {
+          const order = { active: 0, paused: 1, triggered: 2 }
+          return dir * (order[getStatusKey(a)] - order[getStatusKey(b)])
+        }
+        default:
+          return 0
+      }
+    })
+
   const activeSentinels = sentinels.filter(s => s.isActive)
   const triggeredSentinels = sentinels.filter(s => s.triggeredAt !== null)
   const nonTriggeredSentinels = sentinels.filter(s => s.triggeredAt === null)
@@ -731,7 +843,53 @@ export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }
 
       {/* Sentinels List */}
       <div className="card">
-        <h2 className="text-lg font-bold mb-4">All Sentinels</h2>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+          <h2 className="text-lg font-bold">All Sentinels</h2>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground-muted" />
+            <input
+              type="text"
+              placeholder="Search coins..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="input pl-9 pr-3 py-1.5 text-sm w-full"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-background-tertiary rounded"
+              >
+                <X className="w-3.5 h-3.5 text-foreground-muted" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Status filter tabs */}
+        {sentinels.length > 0 && (
+          <div className="flex items-center gap-1 mb-4 p-1 bg-background-tertiary/50 rounded-lg w-fit">
+            {(['all', 'active', 'paused', 'triggered'] as const).map((tab) => {
+              const count = tab === 'all' ? sentinels.length
+                : tab === 'active' ? sentinels.filter(s => s.isActive && !s.triggeredAt).length
+                : tab === 'paused' ? sentinels.filter(s => !s.isActive && !s.triggeredAt).length
+                : triggeredSentinels.length
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setStatusFilter(tab)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    statusFilter === tab
+                      ? 'bg-background-secondary text-foreground shadow-sm'
+                      : 'text-foreground-muted hover:text-foreground'
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  <span className="ml-1.5 text-foreground-muted">{count}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {sentinels.length === 0 ? (
           <div className="text-center py-12 text-foreground-muted">
@@ -745,31 +903,79 @@ export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }
               Create Sentinel
             </button>
           </div>
+        ) : filteredSentinels.length === 0 ? (
+          <div className="text-center py-8 text-foreground-muted">
+            <Search className="w-8 h-8 mx-auto mb-3 opacity-50" />
+            <p className="text-sm">No sentinels match{searchQuery ? ` "${searchQuery}"` : ''}{statusFilter !== 'all' ? ` in ${statusFilter}` : ''}</p>
+            {(searchQuery || statusFilter !== 'all') && (
+              <button
+                onClick={() => { setSearchQuery(''); setStatusFilter('all') }}
+                className="mt-2 text-xs text-emerald-400 hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-background-tertiary">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-foreground-muted">Coin</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-foreground-muted">Entry Price</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-foreground-muted">Stop Loss</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-foreground-muted">Take Profit</th>
+                  <th
+                    className="text-left px-4 py-3 text-xs font-medium text-foreground-muted cursor-pointer hover:text-foreground select-none"
+                    onClick={() => handleSort('symbol')}
+                  >
+                    Coin <SortIcon field="symbol" />
+                  </th>
+                  <th
+                    className="text-right px-4 py-3 text-xs font-medium text-foreground-muted cursor-pointer hover:text-foreground select-none"
+                    onClick={() => handleSort('entryPrice')}
+                  >
+                    Entry Price <SortIcon field="entryPrice" />
+                  </th>
+                  <th
+                    className="text-right px-4 py-3 text-xs font-medium text-foreground-muted cursor-pointer hover:text-foreground select-none"
+                    onClick={() => handleSort('stopLossPct')}
+                  >
+                    Stop Loss <SortIcon field="stopLossPct" />
+                  </th>
+                  <th
+                    className="text-right px-4 py-3 text-xs font-medium text-foreground-muted cursor-pointer hover:text-foreground select-none"
+                    onClick={() => handleSort('takeProfitPct')}
+                  >
+                    Take Profit <SortIcon field="takeProfitPct" />
+                  </th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-foreground-muted">Trailing Stop</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-foreground-muted">Sell %</th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-foreground-muted">Status</th>
+                  <th
+                    className="text-right px-4 py-3 text-xs font-medium text-foreground-muted cursor-pointer hover:text-foreground select-none"
+                    onClick={() => handleSort('sellPercentage')}
+                  >
+                    Sell % <SortIcon field="sellPercentage" />
+                  </th>
+                  <th
+                    className="text-center px-4 py-3 text-xs font-medium text-foreground-muted cursor-pointer hover:text-foreground select-none"
+                    onClick={() => handleSort('status')}
+                  >
+                    Status <SortIcon field="status" />
+                  </th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-foreground-muted">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {sentinels.map((sentinel) => (
+                {filteredSentinels.map((sentinel) => {
+                  const matchedHolding = holdings.find(h => h.symbol === sentinel.symbol)
+                  const iconUrl = buildImageUrl(matchedHolding?.icon)
+                  return (
                   <tr 
                     key={sentinel.id}
                     onClick={() => setDetailSentinel({ ...sentinel })}
+                    onMouseEnter={(e) => handleRowMouseEnter(sentinel.symbol, e)}
+                    onMouseLeave={handleRowMouseLeave}
                     className="border-b border-background-tertiary/50 hover:bg-background-tertiary/30 transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3 font-medium">
-                      <span
-                        className={onCoinClick ? 'hover:text-emerald-400 transition-colors' : ''}
+                      <div
+                        className={`flex items-center gap-2.5 ${onCoinClick ? 'hover:text-emerald-400 transition-colors' : ''}`}
                         onClick={(e) => {
                           if (onCoinClick) {
                             e.stopPropagation()
@@ -778,8 +984,25 @@ export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }
                         }}
                         title={onCoinClick ? `View ${sentinel.symbol} coin page` : undefined}
                       >
-                        ${sentinel.symbol}
-                      </span>
+                        <div className="w-7 h-7 rounded-full bg-background-tertiary flex items-center justify-center overflow-hidden flex-shrink-0">
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={sentinel.symbol}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                                e.currentTarget.parentElement!.innerHTML = `<span class="text-xs font-bold">${sentinel.symbol.substring(0, 2).toUpperCase()}</span>`
+                              }}
+                            />
+                          ) : (
+                            <span className="text-xs font-bold text-foreground-muted">
+                              {sentinel.symbol.substring(0, 2).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-medium text-sm">${sentinel.symbol}</span>
+                      </div>
                     </td>
                     <td className="text-right px-4 py-3 text-sm">{formatPrice(sentinel.entryPrice)}</td>
                     <td className="text-right px-4 py-3">
@@ -853,12 +1076,68 @@ export function SentinelManager({ holdings: externalHoldings = [], onCoinClick }
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
+            {filteredSentinels.length !== sentinels.length && (
+              <p className="text-xs text-foreground-muted text-center py-2 border-t border-background-tertiary/50">
+                Showing {filteredSentinels.length} of {sentinels.length} sentinels
+              </p>
+            )}
           </div>
         )}
       </div>
+
+      {/* Transaction Hover Tooltip */}
+      {tooltipSymbol && (
+        <div
+          className="fixed z-40 pointer-events-none"
+          style={{
+            left: `${Math.min(tooltipPos.x, window.innerWidth - 200)}px`,
+            top: `${tooltipPos.y - 8}px`,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <div className="bg-background-secondary border border-background-tertiary rounded-lg shadow-xl p-3 min-w-[240px] max-w-[320px]">
+            <p className="text-xs font-semibold text-foreground-muted mb-2">
+              ${tooltipSymbol} — Recent Transactions
+            </p>
+            {tooltipLoading ? (
+              <div className="flex items-center gap-2 text-xs text-foreground-muted py-1">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                Loading...
+              </div>
+            ) : tooltipTxs.length === 0 ? (
+              <p className="text-xs text-foreground-muted py-1">No transactions found</p>
+            ) : (
+              <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                {tooltipTxs.slice(0, 8).map((tx, i) => (
+                  <div key={i} className="flex items-center justify-between gap-3 text-xs py-0.5">
+                    <div className="flex items-center gap-1.5">
+                      {tx.tradeType === 'BUY' ? (
+                        <ArrowDownRight className="w-3 h-3 text-buy flex-shrink-0" />
+                      ) : (
+                        <ArrowUpRight className="w-3 h-3 text-sell flex-shrink-0" />
+                      )}
+                      <span className={tx.tradeType === 'BUY' ? 'text-buy font-medium' : 'text-sell font-medium'}>
+                        {tx.tradeType}
+                      </span>
+                      <span className="text-foreground-muted">{formatTime(tx.timestamp)}</span>
+                    </div>
+                    <span className="font-mono tabular-nums">${tx.usdValue.toFixed(2)}</span>
+                  </div>
+                ))}
+                {tooltipTxs.length > 8 && (
+                  <p className="text-xs text-foreground-muted pt-1 text-center">
+                    +{tooltipTxs.length - 8} more — click for details
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Sentinel Detail Modal */}
       {detailSentinel && (

@@ -27,6 +27,61 @@ pub struct SentinelDefaults {
     pub sell_percentage: f64,
 }
 
+/// Reset app settings to research-backed defaults.
+/// Clears the stored settings and writes fresh defaults derived from the research manifest.
+#[tauri::command]
+pub async fn reset_app_settings(
+    state: State<'_, AppState>,
+) -> Result<AppSettings, String> {
+    let research = super::research::get_research_sentinel_defaults(state.clone()).await?;
+
+    let defaults = AppSettings {
+        sentinel_defaults: SentinelDefaults {
+            stop_loss_pct: research.stop_loss_pct,
+            take_profit_pct: research.take_profit_pct,
+            trailing_stop_pct: research.trailing_stop_pct,
+            sell_percentage: research.sell_percentage,
+        },
+        auto_manage_sentinels: true,
+        blacklisted_coins: Vec::new(),
+    };
+
+    let db_guard = state.db.read().await;
+    let db = db_guard.as_ref().ok_or("Database not initialized")?;
+
+    let json = serde_json::to_string(&defaults).map_err(|e| e.to_string())?;
+    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
+        .bind(&json)
+        .execute(db.pool())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Batch-update all existing non-custom sentinels via the persistence layer
+    let active = rugplay_persistence::sqlite::get_active_profile(db.pool())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(profile) = active {
+        let sl = if defaults.sentinel_defaults.stop_loss_pct != 0.0 {
+            Some(defaults.sentinel_defaults.stop_loss_pct)
+        } else { None };
+        let tp = if defaults.sentinel_defaults.take_profit_pct != 0.0 {
+            Some(defaults.sentinel_defaults.take_profit_pct)
+        } else { None };
+
+        let _ = rugplay_persistence::sqlite::update_all_sentinels(
+            db.pool(),
+            profile.id,
+            sl,
+            tp,
+            defaults.sentinel_defaults.trailing_stop_pct,
+            defaults.sentinel_defaults.sell_percentage,
+        ).await;
+    }
+
+    Ok(defaults)
+}
+
 /// Load app settings from the SQLite settings table
 #[tauri::command]
 pub async fn get_app_settings(

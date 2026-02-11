@@ -39,6 +39,9 @@ pub struct MirrorConfig {
     pub stop_loss_pct: f64,
     pub take_profit_pct: f64,
     pub trailing_stop_pct: Option<f64>,
+    /// Percentage of holdings to sell when sentinel triggers (default 100%)
+    #[serde(default = "default_sell_pct")]
+    pub sell_percentage: f64,
     /// Skip BUY if user already holds the coin
     #[serde(default = "default_true")]
     pub skip_if_already_held: bool,
@@ -48,6 +51,7 @@ pub struct MirrorConfig {
 }
 
 fn default_true() -> bool { true }
+fn default_sell_pct() -> f64 { 100.0 }
 
 impl Default for MirrorConfig {
     fn default() -> Self {
@@ -59,6 +63,7 @@ impl Default for MirrorConfig {
             stop_loss_pct: -25.0,
             take_profit_pct: 100.0,
             trailing_stop_pct: Some(15.0),
+            sell_percentage: 100.0,
             skip_if_already_held: true,
             poll_interval_secs: 0,    // use default 10s
         }
@@ -521,6 +526,7 @@ async fn mirror_loop(
                             cfg.stop_loss_pct,
                             cfg.take_profit_pct,
                             cfg.trailing_stop_pct,
+                            cfg.sell_percentage,
                         )
                         .await;
                     }
@@ -593,6 +599,7 @@ async fn create_auto_sentinel(
     stop_loss_pct: f64,
     take_profit_pct: f64,
     trailing_stop_pct: Option<f64>,
+    sell_percentage: f64,
 ) {
     let state = app_handle.state::<AppState>();
     let db_guard = state.db.read().await;
@@ -602,25 +609,19 @@ async fn create_auto_sentinel(
     };
     let pool = db.pool();
 
-    // Get active profile
-    let profiles = match sqlite::list_profiles(pool).await {
-        Ok(p) => p,
-        Err(_) => return,
-    };
-    let active = match profiles.into_iter().find(|p| p.is_active) {
-        Some(p) => p,
-        None => return,
+    let active = match sqlite::get_active_profile(pool).await {
+        Ok(Some(p)) => p,
+        _ => return,
     };
 
-    // Create sentinel
-    if let Err(e) = sqlite::create_sentinel(
+    if let Err(e) = sqlite::upsert_sentinel(
         pool,
         active.id,
         symbol,
         Some(stop_loss_pct),
         Some(take_profit_pct),
         trailing_stop_pct,
-        100.0, // sell 100% on trigger
+        sell_percentage,
         entry_price,
     )
     .await

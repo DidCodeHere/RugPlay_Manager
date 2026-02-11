@@ -178,7 +178,7 @@ rugplay-manager/
 │   │   ├── src/
 │   │   │   ├── main.rs     # Application entry point
 │   │   │   ├── lib.rs      # Tauri command registration
-│   │   │   ├── commands/   # Tauri IPC command handlers
+│   │   │   ├── commands/   # Tauri IPC command handlers (auth, trading, research, etc.)
 │   │   │   ├── mobile_server.rs  # Embedded HTTP server for mobile access
 │   │   │   ├── mobile_dashboard.html  # Mobile web UI
 │   │   │   └── mobile_app.js     # Mobile web JavaScript
@@ -200,9 +200,10 @@ rugplay-manager/
 │   │   │   ├── user/       # User profile pages
 │   │   │   ├── leaderboard/# Leaderboard tabs
 │   │   │   ├── mobile/     # Mobile access control
-│   │   │   ├── settings/   # Settings pages
+│   │   │   ├── settings/   # Settings pages with reset-to-defaults
+│   │   │   ├── about/      # About & Guides page (research data, doc viewer)
 │   │   │   └── layout/     # Sidebar, Dashboard shell
-│   │   ├── hooks/          # Custom React hooks
+│   │   ├── hooks/          # Custom React hooks (research manifest, etc.)
 │   │   ├── stores/         # State management
 │   │   └── lib/            # Utilities and type definitions
 │   ├── package.json        # Frontend dependencies

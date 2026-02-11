@@ -108,10 +108,10 @@ Even if someone copies your `rugplay.db` file, they cannot decrypt the token wit
 
 RugPlay Manager connects to exactly **two** destinations:
 
-| Destination   | Purpose                                            | When                               |
-| ------------- | -------------------------------------------------- | ---------------------------------- |
-| `rugplay.com` | All API requests (portfolio, trading, market data) | Always                             |
-| `bore.pub`    | Tunnel for Mobile Remote Access                    | Only when Mobile Access is enabled |
+| Destination         | Purpose                                            | When                               |
+| ------------------- | -------------------------------------------------- | ---------------------------------- |
+| `rugplay.com`       | All API requests (portfolio, trading, market data) | Always                             |
+| `trycloudflare.com` | Cloudflare Quick Tunnel for Mobile Remote Access   | Only when Mobile Access is enabled |
 
 That's it. No analytics servers. No CDNs. No third-party APIs. No telemetry endpoints.
 
@@ -180,7 +180,7 @@ The `crates/networking/` directory contains every HTTP request the app makes. St
 grep -rn "http" crates/ --include="*.rs" | grep -v "rugplay.com" | grep -v "///"
 ```
 
-This will show any HTTP reference that isn't Rugplay. You should only see `bore.pub` (for Mobile Access).
+This will show any HTTP reference that isn't Rugplay. You should only see `trycloudflare.com` (for Mobile Access).
 
 ### 3. Verify encryption
 
@@ -209,19 +209,19 @@ If you want to verify that our release `.exe` matches the source code, build fro
 
 ## Mobile Access Security
 
-When you enable Mobile Remote Access, the app starts a local HTTP server and creates a tunnel through `bore.pub` to make it accessible from outside your network.
+When you enable Mobile Remote Access, the app starts a local HTTP server and creates a Cloudflare Quick Tunnel to make it accessible from outside your network.
 
 ### Security measures
 
 - **PIN authentication** — A random 6-digit PIN is generated each time you start the mobile server. Without this PIN, nobody can access your data.
 - **Session tokens** — After PIN verification, a random session token is issued. This token expires when you stop the mobile server.
 - **No persistent storage** — The mobile server stores nothing externally. All data comes from your local database.
-- **One-way data** — The mobile dashboard is read-only in terms of sensitive data. It displays portfolio info but cannot execute trades or access your session token.
+- **Role-based access** — Three session roles (Viewer, Trusted, Admin) control what each connected device can do. Trades require Admin role.
 - **Kill switch** — You can disconnect all mobile sessions instantly from the desktop app.
 
-### What `bore.pub` is
+### What Cloudflare Quick Tunnels are
 
-[Bore](https://github.com/ekzhang/bore) is an open-source tunneling tool. It creates a TCP tunnel from a random port on `bore.pub` to your local machine. It doesn't inspect, store, or log your traffic. The project is MIT-licensed and the source code is publicly auditable.
+Cloudflare Quick Tunnels create a temporary HTTPS tunnel via `trycloudflare.com` from a random subdomain to your local machine. `cloudflared` is auto-downloaded and cached on first use. The tunnel is ephemeral — it only exists while Mobile Access is enabled and stops when you close the app.
 
 ---
 

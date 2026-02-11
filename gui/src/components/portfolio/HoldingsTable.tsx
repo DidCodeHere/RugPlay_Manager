@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import { 
   ArrowUpDown, 
   ArrowUp, 
@@ -6,10 +6,11 @@ import {
   Search, 
   TrendingUp, 
   TrendingDown,
+  Shield,
   X
 } from 'lucide-react'
 import { buildImageUrl } from '@/lib/utils'
-import type { CoinHolding } from '@/lib/types'
+import type { CoinHolding, SentinelConfig } from '@/lib/types'
 
 type SortField = 'symbol' | 'quantity' | 'currentPrice' | 'value' | 'profitLossPct' | 'change24h' | 'portfolioPct'
 type SortOrder = 'asc' | 'desc'
@@ -18,14 +19,49 @@ interface HoldingsTableProps {
   holdings: CoinHolding[]
   totalPortfolioValue: number
   onCoinClick: (holding: CoinHolding) => void
+  sentinels?: SentinelConfig[]
+  onSentinelClick?: (symbol: string) => void
 }
 
-export function HoldingsTable({ holdings, totalPortfolioValue, onCoinClick }: HoldingsTableProps) {
+export function HoldingsTable({ holdings, totalPortfolioValue, onCoinClick, sentinels = [], onSentinelClick }: HoldingsTableProps) {
   const [sortField, setSortField] = useState<SortField>('value')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [searchQuery, setSearchQuery] = useState('')
   const [showProfitOnly, setShowProfitOnly] = useState(false)
   const [showLossOnly, setShowLossOnly] = useState(false)
+
+  // Sentinel lookup by symbol
+  const sentinelMap = useMemo(() => {
+    const map: Record<string, SentinelConfig[]> = {}
+    for (const s of sentinels) {
+      if (s.isActive && !s.triggeredAt) {
+        if (!map[s.symbol]) map[s.symbol] = []
+        map[s.symbol].push(s)
+      }
+    }
+    return map
+  }, [sentinels])
+
+  // Shield tooltip state
+  const [shieldTooltip, setShieldTooltip] = useState<string | null>(null)
+  const [shieldTooltipPos, setShieldTooltipPos] = useState({ x: 0, y: 0 })
+  const shieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleShieldEnter = useCallback((symbol: string, e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setShieldTooltipPos({ x: rect.left + rect.width / 2, y: rect.top })
+    shieldTimer.current = setTimeout(() => setShieldTooltip(symbol), 200)
+  }, [])
+
+  const handleShieldLeave = useCallback(() => {
+    if (shieldTimer.current) clearTimeout(shieldTimer.current)
+    setShieldTooltip(null)
+  }, [])
+
+  const formatPctShort = (val: number | null) => {
+    if (val === null) return '-'
+    return `${val >= 0 ? '+' : ''}${val.toFixed(1)}%`
+  }
 
   // Calculate P&L for each holding
   const holdingsWithPnL = useMemo(() => {
@@ -306,6 +342,20 @@ export function HoldingsTable({ holdings, totalPortfolioValue, onCoinClick }: Ho
                           )}
                         </div>
                         <span className="font-medium text-sm lg:text-base">${holding.symbol}</span>
+                        {sentinelMap[holding.symbol] && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onSentinelClick?.(holding.symbol)
+                            }}
+                            onMouseEnter={(e) => handleShieldEnter(holding.symbol, e)}
+                            onMouseLeave={handleShieldLeave}
+                            className="p-0.5 rounded hover:bg-emerald-500/20 transition-colors flex-shrink-0"
+                            title="Sentinel protected"
+                          >
+                            <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                          </button>
+                        )}
                       </div>
                     </td>
 
@@ -355,6 +405,52 @@ export function HoldingsTable({ holdings, totalPortfolioValue, onCoinClick }: Ho
           </tbody>
         </table>
       </div>
+
+      {/* Sentinel Shield Tooltip */}
+      {shieldTooltip && sentinelMap[shieldTooltip] && (
+        <div
+          className="fixed z-50 pointer-events-none"
+          style={{
+            left: `${Math.min(shieldTooltipPos.x, window.innerWidth - 160)}px`,
+            top: `${shieldTooltipPos.y - 8}px`,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <div className="bg-background-secondary border border-emerald-500/30 rounded-lg shadow-xl p-2.5 min-w-[180px]">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Shield className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-400">Sentinel Active</span>
+            </div>
+            {sentinelMap[shieldTooltip].map((s) => (
+              <div key={s.id} className="space-y-0.5 text-xs">
+                {s.stopLossPct !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">Stop Loss</span>
+                    <span className="text-sell font-medium">{formatPctShort(-Math.abs(s.stopLossPct))}</span>
+                  </div>
+                )}
+                {s.takeProfitPct !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">Take Profit</span>
+                    <span className="text-buy font-medium">{formatPctShort(s.takeProfitPct)}</span>
+                  </div>
+                )}
+                {s.trailingStopPct !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-foreground-muted">Trailing Stop</span>
+                    <span className="text-amber-400 font-medium">{formatPctShort(-Math.abs(s.trailingStopPct))}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Sell</span>
+                  <span className="font-medium">{s.sellPercentage}%</span>
+                </div>
+              </div>
+            ))}
+            <p className="text-[10px] text-foreground-muted mt-1.5 text-center">Click shield to manage</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

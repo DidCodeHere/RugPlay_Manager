@@ -74,6 +74,8 @@ export function DipBuyerPage({ setNavGuard }: DipBuyerPageProps) {
   const [history, setHistory] = useState<DipBuyerLogEntry[]>([])
   const [newBlacklistedCoin, setNewBlacklistedCoin] = useState('')
   const [expandedEntry, setExpandedEntry] = useState<number | null>(null)
+  const [resetting, setResetting] = useState(false)
+  const [resetMessage, setResetMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!setNavGuard) return
@@ -169,6 +171,24 @@ export function DipBuyerPage({ setNavGuard }: DipBuyerPageProps) {
     }
   }
 
+  const resetToDefaults = async () => {
+    if (!confirm('Reset all Dip Buyer settings to research-backed defaults? This will recreate all coin tiers and parameters.')) return
+    setResetting(true)
+    setResetMessage(null)
+    try {
+      const preset = config?.preset || 'moderate'
+      const freshConfig = await invoke<DipBuyerConfig>('reset_dipbuyer_config', { preset })
+      setConfig(freshConfig)
+      setHasChanges(false)
+      setResetMessage(`Settings reset to ${preset} research defaults with all coin tiers`)
+      setTimeout(() => setResetMessage(null), 5000)
+    } catch (e) {
+      console.error('Failed to reset dip buyer config:', e)
+    } finally {
+      setResetting(false)
+    }
+  }
+
   const updateConfig = (key: keyof DipBuyerConfig, value: unknown) => {
     setConfig((prev) => (prev ? { ...prev, [key]: value } : prev))
     setHasChanges(true)
@@ -222,6 +242,15 @@ export function DipBuyerPage({ setNavGuard }: DipBuyerPageProps) {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={resetToDefaults}
+            disabled={resetting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors bg-zinc-700 hover:bg-zinc-600 text-zinc-300"
+          >
+            <RefreshCw className={`w-4 h-4 ${resetting ? 'animate-spin' : ''}`} />
+            {resetting ? 'Resetting...' : 'Reset to Defaults'}
+          </button>
+
+          <button
             onClick={saveConfig}
             disabled={!hasChanges || saving}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -274,6 +303,14 @@ export function DipBuyerPage({ setNavGuard }: DipBuyerPageProps) {
           )
         })}
       </div>
+
+      {/* Reset confirmation */}
+      {resetMessage && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/20 text-blue-400 text-sm">
+          <RefreshCw className="w-4 h-4" />
+          {resetMessage}
+        </div>
+      )}
 
       {/* ── Overview Tab ── */}
       {activeTab === 'overview' && (

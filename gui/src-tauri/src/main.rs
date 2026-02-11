@@ -188,6 +188,7 @@ fn main() {
             commands::set_dipbuyer_enabled,
             commands::update_dipbuyer_config,
             commands::get_dipbuyer_preset,
+            commands::reset_dipbuyer_config,
             commands::get_dipbuyer_history,
             commands::get_automation_log,
             // Risk limit commands
@@ -199,6 +200,7 @@ fn main() {
             // App settings commands
             commands::get_app_settings,
             commands::set_app_settings,
+            commands::reset_app_settings,
             commands::get_storage_info,
             commands::clear_automation_logs,
             commands::clear_triggered_sentinels,
@@ -222,6 +224,12 @@ fn main() {
             commands::report_rug_pull,
             commands::get_user_reputation,
             commands::search_users_reputation,
+            // Research defaults commands
+            commands::get_research_manifest,
+            commands::get_research_sentinel_defaults,
+            commands::get_research_dipbuyer_defaults,
+            commands::get_research_about_stats,
+            commands::get_doc_content,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

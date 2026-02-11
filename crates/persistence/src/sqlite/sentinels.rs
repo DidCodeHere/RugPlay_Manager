@@ -450,6 +450,69 @@ pub async fn sync_entry_price(
     Ok(())
 }
 
+/// Delete old triggered sentinels for coins no longer held.
+/// Unlike `cleanup_stale_sentinels` (which preserves triggered rows), this
+/// removes triggered rows whose symbol is NOT in the current portfolio.
+pub async fn cleanup_triggered_sentinels(
+    pool: &SqlitePool,
+    profile_id: i64,
+    held_symbols: &[String],
+) -> Result<u64> {
+    if held_symbols.is_empty() {
+        let result = sqlx::query(
+            "DELETE FROM sentinels WHERE profile_id = ? AND triggered_at IS NOT NULL"
+        )
+        .bind(profile_id)
+        .execute(pool)
+        .await
+        .map_err(|e| Error::DatabaseError(e.to_string()))?;
+        return Ok(result.rows_affected());
+    }
+
+    let placeholders: Vec<String> = held_symbols.iter().map(|_| "?".to_string()).collect();
+    let query_str = format!(
+        "DELETE FROM sentinels WHERE profile_id = ? AND symbol NOT IN ({}) AND triggered_at IS NOT NULL",
+        placeholders.join(", ")
+    );
+
+    let mut query = sqlx::query(&query_str).bind(profile_id);
+    for sym in held_symbols {
+        query = query.bind(sym);
+    }
+
+    let result = query.execute(pool).await
+        .map_err(|e| Error::DatabaseError(e.to_string()))?;
+
+    Ok(result.rows_affected())
+}
+
+/// Delete duplicate triggered sentinels: for each (profile_id, symbol),
+/// keep only the newest triggered row and delete older ones.
+pub async fn cleanup_duplicate_triggered(
+    pool: &SqlitePool,
+    profile_id: i64,
+) -> Result<u64> {
+    let result = sqlx::query(
+        r#"
+        DELETE FROM sentinels
+        WHERE profile_id = ?
+          AND triggered_at IS NOT NULL
+          AND id NOT IN (
+              SELECT MAX(id) FROM sentinels
+              WHERE profile_id = ? AND triggered_at IS NOT NULL
+              GROUP BY symbol
+          )
+        "#,
+    )
+    .bind(profile_id)
+    .bind(profile_id)
+    .execute(pool)
+    .await
+    .map_err(|e| Error::DatabaseError(e.to_string()))?;
+
+    Ok(result.rows_affected())
+}
+
 /// Deactivate and delete non-triggered sentinels for blacklisted coins.
 /// Returns the number of sentinels removed.
 pub async fn remove_blacklisted_sentinels(

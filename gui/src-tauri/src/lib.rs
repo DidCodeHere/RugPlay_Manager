@@ -7,6 +7,7 @@ pub mod harvester;
 pub mod mirror;
 pub mod mobile_server;
 pub mod notifications;
+pub mod sentinel_eval;
 pub mod sentinel_loop;
 pub mod sniper;
 pub mod trade_executor;

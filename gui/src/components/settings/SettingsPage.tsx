@@ -24,12 +24,12 @@ export type { AppSettings, SentinelDefaults } from '@/lib/types'
 
 const DEFAULT_SETTINGS: AppSettings = {
   sentinelDefaults: {
-    stopLossPct: -15,
-    takeProfitPct: 100,
-    trailingStopPct: 10,
+    stopLossPct: -30,
+    takeProfitPct: 500,
+    trailingStopPct: null,
     sellPercentage: 100,
   },
-  autoManageSentinels: false,
+  autoManageSentinels: true,
   blacklistedCoins: [],
 }
 
@@ -59,9 +59,11 @@ export function SettingsPage() {
   const [notifConfig, setNotifConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATION_CONFIG)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [newBlacklistCoin, setNewBlacklistCoin] = useState('')
   const [hasChanges, setHasChanges] = useState(false)
   const [updateCount, setUpdateCount] = useState<number | null>(null)
+  const [resetMessage, setResetMessage] = useState<string | null>(null)
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
@@ -152,6 +154,23 @@ export function SettingsPage() {
     }
   }
 
+  const resetToDefaults = async () => {
+    if (!confirm('Reset all sentinel settings to research-backed defaults? This will update all existing sentinels and clear the blacklist.')) return
+    setResetting(true)
+    setResetMessage(null)
+    try {
+      const defaults = await invoke<AppSettings>('reset_app_settings')
+      setSettings(defaults)
+      setHasChanges(false)
+      setResetMessage('Settings reset to research defaults — all sentinels updated')
+      setTimeout(() => setResetMessage(null), 5000)
+    } catch (e) {
+      console.error('Failed to reset settings:', e)
+    } finally {
+      setResetting(false)
+    }
+  }
+
   const updateSentinelDefault = (key: keyof SentinelDefaults, value: number | boolean | null) => {
     setSettings((prev) => ({
       ...prev,
@@ -204,18 +223,28 @@ export function SettingsPage() {
             <p className="text-sm text-foreground-muted">Configure bot behavior and defaults</p>
           </div>
         </div>
-        <button
-          onClick={saveSettings}
-          disabled={!hasChanges || saving}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-            hasChanges
-              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-              : 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
-          }`}
-        >
-          <Save className="w-4 h-4" />
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={resetToDefaults}
+            disabled={resetting}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors bg-zinc-700 hover:bg-zinc-600 text-zinc-300"
+          >
+            <RefreshCw className={`w-4 h-4 ${resetting ? 'animate-spin' : ''}`} />
+            {resetting ? 'Resetting...' : 'Reset to Defaults'}
+          </button>
+          <button
+            onClick={saveSettings}
+            disabled={!hasChanges || saving}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              hasChanges
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                : 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
+            }`}
+          >
+            <Save className="w-4 h-4" />
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
       </div>
 
       {/* Update confirmation */}
@@ -223,6 +252,12 @@ export function SettingsPage() {
         <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm">
           <Save className="w-4 h-4" />
           Settings saved — updated {updateCount} existing sentinel{updateCount !== 1 ? 's' : ''} with new defaults
+        </div>
+      )}
+      {resetMessage && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/20 text-blue-400 text-sm">
+          <RefreshCw className="w-4 h-4" />
+          {resetMessage}
         </div>
       )}
 

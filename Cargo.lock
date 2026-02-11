@@ -4060,7 +4060,7 @@ dependencies = [
 
 [[package]]
 name = "rugplay-core"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",
@@ -4071,7 +4071,7 @@ dependencies = [
 
 [[package]]
 name = "rugplay-engine"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "rugplay-core",
  "rugplay-networking",
@@ -4085,7 +4085,7 @@ dependencies = [
 
 [[package]]
 name = "rugplay-gui"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "axum",
  "chrono",
@@ -4118,7 +4118,7 @@ dependencies = [
 
 [[package]]
 name = "rugplay-networking"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "reqwest 0.12.28",
  "rugplay-core",
@@ -4132,7 +4132,7 @@ dependencies = [
 
 [[package]]
 name = "rugplay-persistence"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "aes-gcm",
  "argon2",

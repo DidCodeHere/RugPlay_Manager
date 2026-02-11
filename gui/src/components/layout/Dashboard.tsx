@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { Header } from './Header'
@@ -20,6 +20,8 @@ import { UserProfilePage } from '@/components/user'
 import { LeaderboardPage } from '@/components/leaderboard'
 import type { UserProfile, PortfolioResponse } from '@/lib/types'
 
+const AboutPage = lazy(() => import('@/components/about/AboutPage').then(m => ({ default: m.AboutPage })))
+
 interface DashboardProps {
   user: UserProfile
   onLogout: () => void
@@ -30,10 +32,14 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   const [holdings, setHoldings] = useState<PortfolioResponse['coinHoldings']>([])
   const [selectedCoinSymbol, setSelectedCoinSymbol] = useState<string | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-
-  // Navigation guard — pages with unsaved changes register a check here
+  const [sentinelSearchQuery, setSentinelSearchQuery] = useState<string>('')
   const navGuardRef = useRef<(() => boolean) | null>(null)
 
+  const handleSentinelClick = useCallback((symbol: string) => {
+    if (navGuardRef.current && !navGuardRef.current()) return
+    setSentinelSearchQuery(symbol)
+    setActiveNav('sentinel')
+  }, [])
   const guardedNavigate = useCallback((id: NavItemId) => {
     if (navGuardRef.current && !navGuardRef.current()) return
     setActiveNav(id)
@@ -95,6 +101,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
   useEffect(() => {
     setSelectedCoinSymbol(null)
     setSelectedUserId(null)
+    if (activeNav !== 'sentinel') setSentinelSearchQuery('')
   }, [activeNav])
   
   return (
@@ -140,7 +147,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               )}
               
               {activeNav === 'portfolio' && (
-                <PortfolioView onCoinClick={handleCoinClick} />
+                <PortfolioView onCoinClick={handleCoinClick} onSentinelClick={handleSentinelClick} />
               )}
 
               {activeNav === 'market' && (
@@ -148,7 +155,7 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               )}
 
               {activeNav === 'sentinel' && (
-                <SentinelManager holdings={holdings} onCoinClick={handleCoinClick} />
+                <SentinelManager holdings={holdings} onCoinClick={handleCoinClick} initialSearch={sentinelSearchQuery} />
               )}
 
               {activeNav === 'sniper' && (
@@ -185,6 +192,16 @@ export function Dashboard({ user, onLogout }: DashboardProps) {
               
               {activeNav === 'settings' && (
                 <SettingsLayout setNavGuard={setNavGuard} />
+              )}
+
+              {activeNav === 'about' && (
+                <Suspense fallback={
+                  <div className="flex items-center justify-center h-48">
+                    <div className="text-foreground-muted">Loading...</div>
+                  </div>
+                }>
+                  <AboutPage />
+                </Suspense>
               )}
             </div>
           )}

@@ -5,6 +5,7 @@
 //! Submits triggered sells through the TradeExecutor queue.
 
 use crate::notifications::NotificationHandle;
+use crate::sentinel_eval::evaluate_sentinel;
 use crate::trade_executor::{TradeExecutorHandle, TradePriority};
 use crate::AppState;
 use crate::save_automation_log;
@@ -22,8 +23,11 @@ use tracing::{debug, error, info, warn};
 /// Default polling interval in seconds
 const DEFAULT_INTERVAL_SECS: u64 = 10;
 
-/// Cooldown in seconds after a sentinel triggers before it can re-check (per symbol)
-const TRIGGER_COOLDOWN_SECS: i64 = 60;
+/// Cooldown in seconds after a SUCCESSFUL sell before re-checking (per symbol)
+const TRIGGER_COOLDOWN_SECS: i64 = 30;
+
+/// Shorter cooldown for failed sells so retries happen sooner
+const FAILED_COOLDOWN_SECS: i64 = 12;
 
 /// How often (in ticks) to run a full portfolio sync for auto-protection
 const SYNC_EVERY_N_TICKS: u32 = 6;
@@ -33,6 +37,13 @@ const CLEANUP_EVERY_N_TICKS: u32 = 12;
 
 /// Max consecutive sell failures before deactivating a sentinel to prevent spam
 const MAX_SELL_FAILURES: u32 = 3;
+
+/// Maximum fraction of pool tokens the server allows selling (99.5%)
+const MAX_POOL_SELL_FRACTION: f64 = 0.99;
+
+/// Grace period in seconds after sentinel creation before it can trigger.
+/// Prevents instant triggers when auto-sync creates sentinels with stale entry prices.
+const CREATION_GRACE_SECS: i64 = 120;
 
 /// Status of the sentinel monitor
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -334,6 +345,22 @@ async fn run_sentinel_tick(
                 }
                 _ => {}
             }
+            // Clean up old triggered sentinels for coins no longer held
+            match sqlite::cleanup_triggered_sentinels(db_cleanup.pool(), active_profile.id, &held_vec).await {
+                Ok(removed) if removed > 0 => {
+                    info!("Sentinel cleanup: purged {} triggered sentinels for sold coins", removed);
+                }
+                Err(e) => warn!("Triggered sentinel cleanup failed: {}", e),
+                _ => {}
+            }
+            // Clean up duplicate triggered rows (keep only newest per symbol)
+            match sqlite::cleanup_duplicate_triggered(db_cleanup.pool(), active_profile.id).await {
+                Ok(removed) if removed > 0 => {
+                    info!("Sentinel cleanup: removed {} duplicate triggered sentinels", removed);
+                }
+                Err(e) => warn!("Duplicate triggered cleanup failed: {}", e),
+                _ => {}
+            }
             // Also remove sentinels for blacklisted coins
             if !blacklist_set.is_empty() {
                 let bl_vec: Vec<String> = blacklist_set.iter().cloned().collect();
@@ -406,6 +433,18 @@ async fn run_sentinel_tick(
             }
         }
 
+        // Grace period: skip newly created sentinels to prevent instant triggers
+        if let Some(ref created_str) = sentinel.created_at {
+            if let Ok(created) = chrono::NaiveDateTime::parse_from_str(created_str, "%Y-%m-%d %H:%M:%S") {
+                let created_ts = created.and_utc().timestamp();
+                let age = now_epoch - created_ts;
+                if age < CREATION_GRACE_SECS {
+                    debug!("Sentinel #{}: skipping {} (grace period, {}s old)", sentinel.id, sentinel.symbol, age);
+                    continue;
+                }
+            }
+        }
+
         let holding = match portfolio.coin_holdings.iter().find(|h| h.symbol == sentinel.symbol) {
             Some(h) => h,
             None => continue,
@@ -427,57 +466,11 @@ async fn run_sentinel_tick(
             let _ = sqlite::update_highest_price(db.pool(), sentinel.id, current_price).await;
         }
 
-        let mut should_sell = false;
-        let mut reason = String::new();
-        let mut trigger_type = String::new();
+        let trigger = evaluate_sentinel(sentinel, current_price);
 
-        // Check stop loss
-        if let Some(sl_pct) = sentinel.stop_loss_pct {
-            let sl_price = entry_price * (1.0 - sl_pct.abs() / 100.0);
-            if current_price <= sl_price {
-                should_sell = true;
-                trigger_type = "stop_loss".to_string();
-                reason = format!(
-                    "Stop loss triggered at {} (SL={:.1}%, target={})",
-                    current_price, sl_pct, sl_price
-                );
-            }
-        }
-
-        // Check take profit
-        if !should_sell {
-            if let Some(tp_pct) = sentinel.take_profit_pct {
-                let tp_price = entry_price * (1.0 + tp_pct / 100.0);
-                if current_price >= tp_price {
-                    should_sell = true;
-                    trigger_type = "take_profit".to_string();
-                    reason = format!(
-                        "Take profit triggered at {} (TP={:.1}%, target={})",
-                        current_price, tp_pct, tp_price
-                    );
-                }
-            }
-        }
-
-        // Check trailing stop (skip if 0% — would always trigger)
-        if !should_sell {
-            if let Some(ts_pct) = sentinel.trailing_stop_pct {
-                if ts_pct > 0.0 {
-                    let highest = f64::max(sentinel.highest_price_seen, current_price);
-                    let ts_price = highest * (1.0 - ts_pct / 100.0);
-                    if current_price <= ts_price && current_price > entry_price {
-                        should_sell = true;
-                        trigger_type = "trailing_stop".to_string();
-                        reason = format!(
-                            "Trailing stop triggered at {} (TS={:.1}%, highest={}, target={})",
-                            current_price, ts_pct, highest, ts_price
-                        );
-                    }
-                }
-            }
-        }
-
-        if should_sell {
+        if let Some(trigger) = trigger {
+            let reason = trigger.reason.clone();
+            let trigger_type = trigger.trigger_type.as_str().to_string();
             info!("Sentinel #{} triggered for {}: {}", sentinel.id, sentinel.symbol, reason);
 
             // Send native notification
@@ -500,9 +493,22 @@ async fn run_sentinel_tick(
             }
 
             let sell_qty = holding.quantity * (sentinel.sell_percentage / 100.0);
+            // Cap to 99% of holdings to avoid "Cannot sell more than 99.5% of pool" errors
+            let sell_qty = if sentinel.sell_percentage >= 100.0 {
+                f64::min(sell_qty, holding.quantity * MAX_POOL_SELL_FRACTION)
+            } else {
+                sell_qty
+            };
             let sell_qty = truncate_to_8_decimals(sell_qty);
 
-            if sell_qty > 0.0 {
+            // Skip if holding balance is effectively zero
+            if sell_qty <= 0.0 || holding.quantity <= 0.0 {
+                warn!("Sentinel #{}: skipping {} — zero balance (qty={}, sell_qty={})", sentinel.id, sentinel.symbol, holding.quantity, sell_qty);
+                let _ = sqlite::mark_sentinel_triggered(db.pool(), sentinel.id).await;
+                continue;
+            }
+
+            {
                 // Emit sentinel-triggered event to frontend
                 let triggered_event = SentinelTriggeredEvent {
                     sentinel_id: sentinel.id,
@@ -536,6 +542,8 @@ async fn run_sentinel_tick(
                         // Clear failure counter on success
                         sell_failures.remove(&sentinel.id);
 
+                        let pnl_pct = if entry_price > 0.0 { ((current_price - entry_price) / entry_price) * 100.0 } else { 0.0 };
+
                         save_automation_log(
                             &app_handle,
                             "sentinel",
@@ -548,7 +556,9 @@ async fn run_sentinel_tick(
                                 "triggerType": trigger_type,
                                 "reason": reason,
                                 "entryPrice": entry_price,
+                                "triggerPrice": trigger.trigger_price,
                                 "currentPrice": current_price,
+                                "pnlPct": (pnl_pct * 100.0).round() / 100.0,
                                 "sellPercentage": sentinel.sell_percentage,
                                 "status": "confirmed",
                             }).to_string(),
@@ -562,25 +572,43 @@ async fn run_sentinel_tick(
                         }
                     }
                     Err(e) => {
-                        let fail_count = sell_failures.entry(sentinel.id).or_insert(0);
-                        *fail_count += 1;
-                        error!(
-                            "Sentinel #{} sell FAILED for {} (attempt {}/{}): {}",
-                            sentinel.id, sentinel.symbol, fail_count, MAX_SELL_FAILURES, e
-                        );
+                        let error_str = e.to_string();
+                        let is_rate_limited = error_str.contains("429") || error_str.contains("Rate limit");
+                        let is_pool_limit = error_str.contains("99.5%") || error_str.contains("pool tokens");
+                        let is_zero_balance = error_str.contains("Insufficient coins") || error_str.contains("have 0");
 
-                        if *fail_count >= MAX_SELL_FAILURES {
-                            warn!(
-                                "Sentinel #{} for {} deactivated after {} consecutive sell failures",
-                                sentinel.id, sentinel.symbol, MAX_SELL_FAILURES
+                        // Don't count rate limits or pool limits as "real" failures
+                        if is_rate_limited {
+                            warn!("Sentinel #{}: rate-limited for {}, will retry next tick", sentinel.id, sentinel.symbol);
+                            // Use short cooldown for rate limits
+                            trigger_cooldowns.insert(sentinel.symbol.clone(), chrono::Utc::now().timestamp() + FAILED_COOLDOWN_SECS);
+                        } else if is_zero_balance {
+                            warn!("Sentinel #{}: {} has zero balance, marking triggered", sentinel.id, sentinel.symbol);
+                            let _ = sqlite::mark_sentinel_triggered(db.pool(), sentinel.id).await;
+                        } else if is_pool_limit {
+                            warn!("Sentinel #{}: pool limit hit for {}, will retry with smaller amount", sentinel.id, sentinel.symbol);
+                            // Don't increment failure counter, the next tick will use the capped amount
+                        } else {
+                            let fail_count = sell_failures.entry(sentinel.id).or_insert(0);
+                            *fail_count += 1;
+                            error!(
+                                "Sentinel #{} sell FAILED for {} (attempt {}/{}): {}",
+                                sentinel.id, sentinel.symbol, fail_count, MAX_SELL_FAILURES, e
                             );
-                            let _ = sqlite::set_sentinel_active(db.pool(), sentinel.id, false).await;
 
-                            if let Some(notif) = app_handle.try_state::<NotificationHandle>() {
-                                notif.send_raw(
-                                    &format!("Sentinel Failed: {}", sentinel.symbol),
-                                    &format!("Sell failed {} times, sentinel deactivated. Check your holdings.", MAX_SELL_FAILURES),
-                                ).await;
+                            if *fail_count >= MAX_SELL_FAILURES {
+                                warn!(
+                                    "Sentinel #{} for {} deactivated after {} consecutive sell failures",
+                                    sentinel.id, sentinel.symbol, MAX_SELL_FAILURES
+                                );
+                                let _ = sqlite::set_sentinel_active(db.pool(), sentinel.id, false).await;
+
+                                if let Some(notif) = app_handle.try_state::<NotificationHandle>() {
+                                    notif.send_raw(
+                                        &format!("Sentinel Failed: {}", sentinel.symbol),
+                                        &format!("Sell failed {} times, sentinel deactivated. Check your holdings.", MAX_SELL_FAILURES),
+                                    ).await;
+                                }
                             }
                         }
 
@@ -595,15 +623,21 @@ async fn run_sentinel_tick(
                                 "sentinelId": sentinel.id,
                                 "triggerType": trigger_type,
                                 "reason": reason,
+                                "entryPrice": entry_price,
+                                "triggerPrice": trigger.trigger_price,
+                                "currentPrice": current_price,
                                 "error": e,
-                                "failureCount": *fail_count,
+                                "failureCount": sell_failures.get(&sentinel.id).copied().unwrap_or(0),
+                                "isRateLimited": is_rate_limited,
                             }).to_string(),
                         ).await;
                     }
                 }
 
-                // Set cooldown for this symbol regardless of success/failure
-                trigger_cooldowns.insert(sentinel.symbol.clone(), chrono::Utc::now().timestamp() + TRIGGER_COOLDOWN_SECS);
+                // Set appropriate cooldown: shorter for failures, longer for successful sells
+                if !trigger_cooldowns.contains_key(&sentinel.symbol) {
+                    trigger_cooldowns.insert(sentinel.symbol.clone(), chrono::Utc::now().timestamp() + TRIGGER_COOLDOWN_SECS);
+                }
             }
         }
 
@@ -656,6 +690,18 @@ async fn run_sentinel_checks(
             }
         }
 
+        // Grace period: skip newly created sentinels to prevent instant triggers
+        if let Some(ref created_str) = sentinel.created_at {
+            if let Ok(created) = chrono::NaiveDateTime::parse_from_str(created_str, "%Y-%m-%d %H:%M:%S") {
+                let created_ts = created.and_utc().timestamp();
+                let age = now_epoch - created_ts;
+                if age < CREATION_GRACE_SECS {
+                    debug!("Sentinel #{}: skipping {} (grace period, {}s old)", sentinel.id, sentinel.symbol, age);
+                    continue;
+                }
+            }
+        }
+
         let holding = match portfolio.coin_holdings.iter().find(|h| h.symbol == sentinel.symbol) {
             Some(h) => h,
             None => continue,
@@ -675,45 +721,11 @@ async fn run_sentinel_checks(
             let _ = sqlite::update_highest_price(db.pool(), sentinel.id, current_price).await;
         }
 
-        let mut should_sell = false;
-        let mut reason = String::new();
-        let mut trigger_type = String::new();
+        let trigger = evaluate_sentinel(sentinel, current_price);
 
-        if let Some(sl_pct) = sentinel.stop_loss_pct {
-            let sl_price = entry_price * (1.0 - sl_pct.abs() / 100.0);
-            if current_price <= sl_price {
-                should_sell = true;
-                trigger_type = "stop_loss".to_string();
-                reason = format!("Stop loss triggered at {} (SL={:.1}%, target={})", current_price, sl_pct, sl_price);
-            }
-        }
-
-        if !should_sell {
-            if let Some(tp_pct) = sentinel.take_profit_pct {
-                let tp_price = entry_price * (1.0 + tp_pct / 100.0);
-                if current_price >= tp_price {
-                    should_sell = true;
-                    trigger_type = "take_profit".to_string();
-                    reason = format!("Take profit triggered at {} (TP={:.1}%, target={})", current_price, tp_pct, tp_price);
-                }
-            }
-        }
-
-        if !should_sell {
-            if let Some(ts_pct) = sentinel.trailing_stop_pct {
-                if ts_pct > 0.0 {
-                    let highest = f64::max(sentinel.highest_price_seen, current_price);
-                    let ts_price = highest * (1.0 - ts_pct / 100.0);
-                    if current_price <= ts_price && current_price > entry_price {
-                        should_sell = true;
-                        trigger_type = "trailing_stop".to_string();
-                        reason = format!("Trailing stop triggered at {} (TS={:.1}%, highest={}, target={})", current_price, ts_pct, highest, ts_price);
-                    }
-                }
-            }
-        }
-
-        if should_sell {
+        if let Some(trigger) = trigger {
+            let reason = trigger.reason.clone();
+            let trigger_type = trigger.trigger_type.as_str().to_string();
             info!("Sentinel #{} triggered for {}: {}", sentinel.id, sentinel.symbol, reason);
 
             if let Some(notif) = app_handle.try_state::<NotificationHandle>() {
@@ -735,9 +747,20 @@ async fn run_sentinel_checks(
             }
 
             let sell_qty = holding.quantity * (sentinel.sell_percentage / 100.0);
+            let sell_qty = if sentinel.sell_percentage >= 100.0 {
+                f64::min(sell_qty, holding.quantity * MAX_POOL_SELL_FRACTION)
+            } else {
+                sell_qty
+            };
             let sell_qty = truncate_to_8_decimals(sell_qty);
 
-            if sell_qty > 0.0 {
+            if sell_qty <= 0.0 || holding.quantity <= 0.0 {
+                warn!("Sentinel #{}: skipping {} — zero balance", sentinel.id, sentinel.symbol);
+                let _ = sqlite::mark_sentinel_triggered(db.pool(), sentinel.id).await;
+                continue;
+            }
+
+            {
                 let triggered_event = SentinelTriggeredEvent {
                     sentinel_id: sentinel.id,
                     symbol: sentinel.symbol.clone(),
@@ -765,6 +788,8 @@ async fn run_sentinel_checks(
                         info!("Sentinel #{} sell CONFIRMED for {} — {}", sentinel.id, sentinel.symbol, reason);
                         sell_failures.remove(&sentinel.id);
 
+                        let pnl_pct = if entry_price > 0.0 { ((current_price - entry_price) / entry_price) * 100.0 } else { 0.0 };
+
                         save_automation_log(
                             &app_handle,
                             "sentinel",
@@ -777,7 +802,9 @@ async fn run_sentinel_checks(
                                 "triggerType": trigger_type,
                                 "reason": reason,
                                 "entryPrice": entry_price,
+                                "triggerPrice": trigger.trigger_price,
                                 "currentPrice": current_price,
+                                "pnlPct": (pnl_pct * 100.0).round() / 100.0,
                                 "sellPercentage": sentinel.sell_percentage,
                                 "status": "confirmed",
                             }).to_string(),
@@ -791,16 +818,31 @@ async fn run_sentinel_checks(
                         }
                     }
                     Err(e) => {
-                        let fail_count = sell_failures.entry(sentinel.id).or_insert(0);
-                        *fail_count += 1;
-                        error!(
-                            "Sentinel #{} sell FAILED for {} (attempt {}/{}): {}",
-                            sentinel.id, sentinel.symbol, fail_count, MAX_SELL_FAILURES, e
-                        );
+                        let error_str = e.to_string();
+                        let is_rate_limited = error_str.contains("429") || error_str.contains("Rate limit");
+                        let is_pool_limit = error_str.contains("99.5%") || error_str.contains("pool tokens");
+                        let is_zero_balance = error_str.contains("Insufficient coins") || error_str.contains("have 0");
 
-                        if *fail_count >= MAX_SELL_FAILURES {
-                            warn!("Sentinel #{} for {} deactivated after {} consecutive failures", sentinel.id, sentinel.symbol, MAX_SELL_FAILURES);
-                            let _ = sqlite::set_sentinel_active(db.pool(), sentinel.id, false).await;
+                        if is_rate_limited {
+                            warn!("Sentinel #{}: rate-limited for {}, will retry next tick", sentinel.id, sentinel.symbol);
+                            trigger_cooldowns.insert(sentinel.symbol.clone(), chrono::Utc::now().timestamp() + FAILED_COOLDOWN_SECS);
+                        } else if is_zero_balance {
+                            warn!("Sentinel #{}: {} has zero balance, marking triggered", sentinel.id, sentinel.symbol);
+                            let _ = sqlite::mark_sentinel_triggered(db.pool(), sentinel.id).await;
+                        } else if is_pool_limit {
+                            warn!("Sentinel #{}: pool limit hit for {}, will retry with smaller amount", sentinel.id, sentinel.symbol);
+                        } else {
+                            let fail_count = sell_failures.entry(sentinel.id).or_insert(0);
+                            *fail_count += 1;
+                            error!(
+                                "Sentinel #{} sell FAILED for {} (attempt {}/{}): {}",
+                                sentinel.id, sentinel.symbol, fail_count, MAX_SELL_FAILURES, e
+                            );
+
+                            if *fail_count >= MAX_SELL_FAILURES {
+                                warn!("Sentinel #{} for {} deactivated after {} consecutive failures", sentinel.id, sentinel.symbol, MAX_SELL_FAILURES);
+                                let _ = sqlite::set_sentinel_active(db.pool(), sentinel.id, false).await;
+                            }
                         }
 
                         save_automation_log(
@@ -813,14 +855,21 @@ async fn run_sentinel_checks(
                             &serde_json::json!({
                                 "sentinelId": sentinel.id,
                                 "triggerType": trigger_type,
+                                "reason": reason,
+                                "entryPrice": entry_price,
+                                "triggerPrice": trigger.trigger_price,
+                                "currentPrice": current_price,
                                 "error": e,
-                                "failureCount": *fail_count,
+                                "failureCount": sell_failures.get(&sentinel.id).copied().unwrap_or(0),
+                                "isRateLimited": is_rate_limited,
                             }).to_string(),
                         ).await;
                     }
                 }
 
-                trigger_cooldowns.insert(sentinel.symbol.clone(), chrono::Utc::now().timestamp() + TRIGGER_COOLDOWN_SECS);
+                if !trigger_cooldowns.contains_key(&sentinel.symbol) {
+                    trigger_cooldowns.insert(sentinel.symbol.clone(), chrono::Utc::now().timestamp() + TRIGGER_COOLDOWN_SECS);
+                }
             }
         }
 
@@ -870,10 +919,10 @@ async fn auto_sync_sentinels(
                     .unwrap_or_default();
                 (sl, tp, ts, sell, bl)
             } else {
-                (Some(10.0), Some(50.0), None, 100.0, Vec::new())
+                (Some(-10.0), Some(50.0), None, 100.0, Vec::new())
             }
         }
-        None => (Some(10.0), Some(50.0), None, 100.0, Vec::new()),
+        None => (Some(-10.0), Some(50.0), None, 100.0, Vec::new()),
     };
 
     let blacklist_set: std::collections::HashSet<&str> = blacklist.iter().map(|s| s.as_str()).collect();
@@ -901,6 +950,15 @@ async fn auto_sync_sentinels(
         }
     };
 
+    // Also clean up triggered sentinels for coins no longer held
+    match sqlite::cleanup_triggered_sentinels(db.pool(), active_profile.id, &held_vec).await {
+        Ok(count) if count > 0 => {
+            info!("Auto-sync: purged {} old triggered sentinels", count);
+        }
+        Err(e) => warn!("Auto-sync: triggered cleanup failed: {}", e),
+        _ => {}
+    }
+
     // Remove sentinels for blacklisted coins
     if !blacklist.is_empty() {
         match sqlite::remove_blacklisted_sentinels(db.pool(), active_profile.id, &blacklist).await {
@@ -921,10 +979,34 @@ async fn auto_sync_sentinels(
             continue;
         }
 
-        let entry_price = if holding.avg_purchase_price > 0.0 {
+        let avg_entry = if holding.avg_purchase_price > 0.0 {
             holding.avg_purchase_price
         } else {
             holding.current_price
+        };
+
+        // Guard: if the weighted avg entry would cause an IMMEDIATE SL trigger
+        // at the current price, use the current market price instead.
+        // This prevents the scenario where a user re-buys a coin at a low price
+        // but the old expensive position drags the avg entry way above current,
+        // causing an instant sell.
+        let entry_price = if let Some(sl) = default_sl {
+            if sl < 0.0 {
+                let sl_floor = avg_entry * (1.0 + sl / 100.0);
+                if holding.current_price <= sl_floor && holding.current_price > 0.0 {
+                    info!(
+                        "Auto-sync: using current price {:.8} instead of avg {:.8} for {} (would instantly trigger SL={:.0}%)",
+                        holding.current_price, avg_entry, holding.symbol, sl
+                    );
+                    holding.current_price
+                } else {
+                    avg_entry
+                }
+            } else {
+                avg_entry
+            }
+        } else {
+            avg_entry
         };
 
         if sentinel_symbols.contains(&holding.symbol) {
@@ -932,10 +1014,27 @@ async fn auto_sync_sentinels(
             if let Some(existing) = sentinels.iter().find(|s| s.symbol == holding.symbol && s.triggered_at.is_none()) {
                 let price_diff = (existing.entry_price - entry_price).abs();
                 if entry_price > 0.0 && price_diff / entry_price > 0.001 {
-                    if let Err(e) = sqlite::sync_entry_price(db.pool(), existing.id, entry_price).await {
+                    // Same guard for existing sentinels: don't sync to a price
+                    // that would cause an immediate trigger
+                    let safe_entry = if let Some(sl) = existing.stop_loss_pct {
+                        if sl < 0.0 {
+                            let sl_floor = entry_price * (1.0 + sl / 100.0);
+                            if holding.current_price <= sl_floor && holding.current_price > 0.0 {
+                                info!(
+                                    "Auto-sync: skipping entry sync for {} — would trigger SL (avg={:.8}, current={:.8})",
+                                    holding.symbol, entry_price, holding.current_price
+                                );
+                                continue;
+                            }
+                        }
+                        entry_price
+                    } else {
+                        entry_price
+                    };
+                    if let Err(e) = sqlite::sync_entry_price(db.pool(), existing.id, safe_entry).await {
                         warn!("Auto-sync: failed to update entry price for {}: {}", holding.symbol, e);
                     } else {
-                        debug!("Auto-sync: updated {} entry price {:.8} -> {:.8}", holding.symbol, existing.entry_price, entry_price);
+                        debug!("Auto-sync: updated {} entry price {:.8} -> {:.8}", holding.symbol, existing.entry_price, safe_entry);
                     }
                 }
             }

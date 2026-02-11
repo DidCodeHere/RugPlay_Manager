@@ -15,9 +15,10 @@ import {
   TrendingDown,
   ScrollText,
   Trophy,
+  Info,
 } from 'lucide-react'
 
-export type NavItemId = 'dashboard' | 'portfolio' | 'market' | 'feed' | 'history' | 'leaderboard' | 'sentinel' | 'sniper' | 'mirror' | 'dipbuyer' | 'automation' | 'mobile' | 'settings'
+export type NavItemId = 'dashboard' | 'portfolio' | 'market' | 'feed' | 'history' | 'leaderboard' | 'sentinel' | 'sniper' | 'mirror' | 'dipbuyer' | 'automation' | 'mobile' | 'settings' | 'about'
 
 interface NavItem {
   id: NavItemId
@@ -40,6 +41,7 @@ const navItems: NavItem[] = [
   { id: 'automation', label: 'Automation', icon: <ScrollText className="w-5 h-5" /> },
   { id: 'mobile', label: 'Mobile', icon: <Smartphone className="w-5 h-5" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
+  { id: 'about', label: 'About & Guides', icon: <Info className="w-5 h-5" /> },
 ]
 
 interface SidebarProps {

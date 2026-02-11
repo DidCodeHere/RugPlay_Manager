@@ -1,6 +1,7 @@
 //! Sentinel commands for managing stop-loss/take-profit
 
 use crate::AppState;
+use crate::sentinel_eval::evaluate_sentinel;
 use rugplay_core::{TradeRequest, TradeType, truncate_to_8_decimals};
 use rugplay_networking::RugplayClient;
 use rugplay_persistence::sqlite;
@@ -126,8 +127,34 @@ pub async fn list_sentinels(state: State<'_, AppState>) -> Result<Vec<SentinelCo
             e.to_string()
         })?;
 
-    debug!("Found {} sentinels", sentinels.len());
-    Ok(sentinels.into_iter().map(SentinelConfig::from).collect())
+    // Deduplicate: for each symbol, show ONE row only.
+    // Priority: active non-triggered > most-recent triggered.
+    let mut best_per_symbol: std::collections::HashMap<String, SentinelConfig> = std::collections::HashMap::new();
+
+    // Sentinels are ordered by created_at DESC from the query, so first seen = newest
+    for s in sentinels {
+        let cfg = SentinelConfig::from(s);
+        let entry = best_per_symbol.entry(cfg.symbol.clone());
+        match entry {
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(cfg);
+            }
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                let existing = e.get();
+                // Prefer active non-triggered over triggered
+                let existing_is_active = existing.is_active && existing.triggered_at.is_none();
+                let new_is_active = cfg.is_active && cfg.triggered_at.is_none();
+                if new_is_active && !existing_is_active {
+                    e.insert(cfg);
+                }
+                // If both triggered or both active, keep the one we already have (newer by created_at DESC)
+            }
+        }
+    }
+
+    let result: Vec<SentinelConfig> = best_per_symbol.into_values().collect();
+    debug!("Found {} sentinels (filtered from raw)", result.len());
+    Ok(result)
 }
 
 /// Toggle a sentinel's active status
@@ -333,9 +360,25 @@ pub async fn run_sentinel_check(
         }
     }
 
-    // Phase 4: Check active sentinels against current prices (skip blacklisted)
+    // Phase 4: Check active sentinels against current prices (skip blacklisted + grace period)
+    let now_epoch = chrono::Utc::now().timestamp();
     let active_sentinels: Vec<_> = sentinels.iter()
-        .filter(|s| s.is_active && held_symbols.contains(&s.symbol) && !blacklist_set.contains(&s.symbol))
+        .filter(|s| {
+            if !s.is_active || !held_symbols.contains(&s.symbol) || blacklist_set.contains(&s.symbol) {
+                return false;
+            }
+            // Skip sentinels in grace period (created within last 120s)
+            if let Some(ref created_str) = s.created_at {
+                if let Ok(created) = chrono::NaiveDateTime::parse_from_str(created_str, "%Y-%m-%d %H:%M:%S") {
+                    let age = now_epoch - created.and_utc().timestamp();
+                    if age < 120 {
+                        debug!("Sentinel #{}: skipping {} (grace period, {}s old)", s.id, s.symbol, age);
+                        return false;
+                    }
+                }
+            }
+            true
+        })
         .collect();
 
     for sentinel in &active_sentinels {
@@ -347,7 +390,6 @@ pub async fn run_sentinel_check(
         };
 
         let current_price = holding.current_price;
-        let entry_price = sentinel.entry_price;
 
         // Update highest price seen (short DB lock)
         if current_price > sentinel.highest_price_seen {
@@ -357,42 +399,10 @@ pub async fn run_sentinel_check(
             }
         }
 
-        let mut should_sell = false;
-        let mut reason = String::new();
+        let trigger = evaluate_sentinel(sentinel, current_price);
 
-        if let Some(sl_pct) = sentinel.stop_loss_pct {
-            let sl_price = entry_price * (1.0 - sl_pct.abs() / 100.0);
-            if current_price <= sl_price {
-                should_sell = true;
-                reason = format!("Stop loss triggered at {} (SL={:.1}%, target={})", current_price, sl_pct, sl_price);
-            }
-        }
-
-        if !should_sell {
-            if let Some(tp_pct) = sentinel.take_profit_pct {
-                let tp_price = entry_price * (1.0 + tp_pct / 100.0);
-                if current_price >= tp_price {
-                    should_sell = true;
-                    reason = format!("Take profit triggered at {} (TP={:.1}%, target={})", current_price, tp_pct, tp_price);
-                }
-            }
-        }
-
-        if !should_sell {
-            if let Some(ts_pct) = sentinel.trailing_stop_pct {
-                if ts_pct > 0.0 {
-                    let highest = f64::max(sentinel.highest_price_seen, current_price);
-                    let ts_price = highest * (1.0 - ts_pct / 100.0);
-                    if current_price <= ts_price && current_price > entry_price {
-                        should_sell = true;
-                        reason = format!("Trailing stop triggered at {} (TS={:.1}%, highest={}, target={})", 
-                                         current_price, ts_pct, highest, ts_price);
-                    }
-                }
-            }
-        }
-
-        if should_sell {
+        if let Some(trigger) = trigger {
+            let reason = trigger.reason.clone();
             info!("Sentinel triggered for {}: {}", sentinel.symbol, reason);
 
             let sell_qty = holding.quantity * (sentinel.sell_percentage / 100.0);
@@ -516,21 +526,58 @@ pub async fn sync_sentinels(
             continue;
         }
 
-        let entry_price = if holding.avg_purchase_price > 0.0 {
+        let avg_entry = if holding.avg_purchase_price > 0.0 {
             holding.avg_purchase_price
         } else {
             holding.current_price
         };
 
+        // Guard: if the weighted avg entry would cause an IMMEDIATE SL trigger
+        // at the current price, use the current market price instead.
+        let entry_price = if let Some(sl) = default_stop_loss_pct {
+            if sl < 0.0 {
+                let sl_floor = avg_entry * (1.0 + sl / 100.0);
+                if holding.current_price <= sl_floor && holding.current_price > 0.0 {
+                    info!(
+                        "Sync: using current price {:.8} instead of avg {:.8} for {} (would instantly trigger SL={:.0}%)",
+                        holding.current_price, avg_entry, holding.symbol, sl
+                    );
+                    holding.current_price
+                } else {
+                    avg_entry
+                }
+            } else {
+                avg_entry
+            }
+        } else {
+            avg_entry
+        };
+
         if sentinel_symbols.contains(&holding.symbol) {
-            // Existing sentinel: sync entry price with portfolio avg
+            // Existing sentinel: sync entry price with portfolio avg if it drifted
             if let Some(existing) = sentinels.iter().find(|s| s.symbol == holding.symbol && s.triggered_at.is_none()) {
                 let price_diff = (existing.entry_price - entry_price).abs();
                 if entry_price > 0.0 && price_diff / entry_price > 0.001 {
-                    if let Err(e) = sqlite::sync_entry_price(db.pool(), existing.id, entry_price).await {
+                    // Same guard for existing sentinels
+                    let safe_entry = if let Some(sl) = existing.stop_loss_pct {
+                        if sl < 0.0 {
+                            let sl_floor = entry_price * (1.0 + sl / 100.0);
+                            if holding.current_price <= sl_floor && holding.current_price > 0.0 {
+                                info!(
+                                    "Sync: skipping entry sync for {} — would trigger SL (avg={:.8}, current={:.8})",
+                                    holding.symbol, entry_price, holding.current_price
+                                );
+                                continue;
+                            }
+                        }
+                        entry_price
+                    } else {
+                        entry_price
+                    };
+                    if let Err(e) = sqlite::sync_entry_price(db.pool(), existing.id, safe_entry).await {
                         warn!("Failed to sync entry price for {}: {}", holding.symbol, e);
                     } else {
-                        debug!("Synced {} entry price {:.8} -> {:.8}", holding.symbol, existing.entry_price, entry_price);
+                        debug!("Synced {} entry price {:.8} -> {:.8}", holding.symbol, existing.entry_price, safe_entry);
                     }
                 }
             }

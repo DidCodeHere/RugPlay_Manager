@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Component } from 'react'
+import type { ReactNode, ErrorInfo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { ProfileSelect } from './components/auth/ProfileSelect'
@@ -250,10 +251,48 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {renderScreen()}
-    </div>
+    <ErrorBoundary>
+      <div className="min-h-screen bg-background">
+        {renderScreen()}
+      </div>
+    </ErrorBoundary>
   )
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null; info: string }> {
+  state = { error: null as Error | null, info: '' }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info)
+    this.setState({ info: info.componentStack || '' })
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-8">
+          <div className="max-w-xl w-full space-y-4">
+            <h1 className="text-xl font-bold text-rose-400">Something went wrong</h1>
+            <p className="text-sm text-foreground-muted">{this.state.error.message}</p>
+            <pre className="text-xs bg-white/5 rounded-lg p-4 overflow-auto max-h-48 text-foreground-muted">
+              {this.state.error.stack}
+            </pre>
+            <button
+              onClick={() => { this.setState({ error: null, info: '' }) }}
+              className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-500 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 export default App

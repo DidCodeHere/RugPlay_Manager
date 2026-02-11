@@ -610,3 +610,116 @@ export interface LeaderboardUser {
   label: string
   reputationScore: number | null
 }
+
+// ============================================================================
+// Research Manifest Types (from deep_analysis.py pipeline)
+// ============================================================================
+
+export interface ResearchManifest {
+  _version: string
+  _generated: string
+  about: ResearchAboutStats
+  topCoins: ResearchTopCoin[]
+  sentinel: {
+    overall: {
+      bySortino: ResearchSentinelConfig
+      byMedianPnl: ResearchSentinelConfig
+      balanced: ResearchSentinelConfig
+    }
+    perTier: Record<string, ResearchSentinelConfig>
+  }
+  dipbuyer: {
+    presets: Record<string, ResearchDipBuyerPreset>
+    perTier: Record<string, ResearchDipTierConfig>
+  }
+  mcapTiers: Record<string, ResearchMcapTier>
+  holdAnalysis: Record<string, Record<string, ResearchHoldDuration>>
+  gridAggregate: {
+    topBySortino: ResearchGridConfig[]
+    topByMedianPnl: ResearchGridConfig[]
+  }
+  tierSummary: Record<string, ResearchTierSummary>
+}
+
+export interface ResearchAboutStats {
+  totalCoinsAnalyzed: number
+  totalCoinsSkipped: number
+  totalCandleRows: number
+  gridConfigsTestedPerCoin: number
+  totalGridBacktests: number
+  tierCounts: Record<string, number>
+  mcapTierCounts: Record<string, number>
+  overallMedianReturn: number
+  overallMedianDrawdown: number
+  pumpDumpPercentage: number
+  coinsWithPositiveSortino: number
+}
+
+export interface ResearchTopCoin {
+  symbol: string
+  tier: string
+  mcapTier: string
+  marketCap: number
+  candles: number
+  totalReturn: number
+  maxDrawdown: number
+  bestSl: number | null
+  bestTp: number | null
+  bestTs: number | null
+  sortino: number
+  winRate: number
+  medianPnl: number
+}
+
+export interface ResearchSentinelConfig {
+  stopLossPct: number
+  takeProfitPct: number
+  trailingStopPct: number | null
+  sellPercentage: number
+}
+
+export interface ResearchDipBuyerPreset {
+  buyAmountUsd: number
+  maxPriceDropPct: number
+  stopLossPct: number
+  takeProfitPct: number
+  trailingStopPct: number | null
+  minMarketCap: number
+  minVolume24h: number
+  minConfidenceScore: number
+  maxDailyBuys: number
+}
+
+export interface ResearchDipTierConfig {
+  maxPriceDropPct: number
+  takeProfitPct: number
+  stopLossPct: number
+}
+
+export interface ResearchMcapTier {
+  count: number
+  range: [number, number]
+  medianMcap: number
+  medianReturn: number
+  bestConfig: ResearchGridConfig | null
+  dipBuyerBest: { dip: number; tp: number; sl: number; votes: number } | null
+}
+
+export interface ResearchHoldDuration {
+  medianReturn: number
+  avgWinRate: number
+}
+
+export interface ResearchGridConfig {
+  sl: number
+  tp: number
+  ts: number | null
+  votes: number
+}
+
+export interface ResearchTierSummary {
+  count: number
+  medianReturn: number
+  medianDrawdown: number
+  pumpDumpCoins: number
+}

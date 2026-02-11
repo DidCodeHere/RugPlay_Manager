@@ -40,6 +40,9 @@ pub struct SniperConfig {
     pub stop_loss_pct: f64,
     pub take_profit_pct: f64,
     pub trailing_stop_pct: Option<f64>,
+    /// Percentage of holdings to sell when sentinel triggers (default 100%)
+    #[serde(default = "default_sell_pct")]
+    pub sell_percentage: f64,
     /// Creators to skip
     pub blacklisted_creators: Vec<String>,
     /// Minimum pool liquidity in USD to buy (0 = no limit)
@@ -57,6 +60,7 @@ pub struct SniperConfig {
 }
 
 fn default_min_coin_age_secs() -> u64 { 65 }
+fn default_sell_pct() -> f64 { 100.0 }
 
 impl Default for SniperConfig {
     fn default() -> Self {
@@ -68,6 +72,7 @@ impl Default for SniperConfig {
             stop_loss_pct: -20.0,
             take_profit_pct: 100.0,
             trailing_stop_pct: Some(15.0),
+            sell_percentage: 100.0,
             blacklisted_creators: Vec::new(),
             min_liquidity_usd: 0.0,    // disabled by default
             max_daily_spend_usd: 0.0,  // unlimited by default
@@ -494,7 +499,7 @@ async fn create_sentinel_for_snipe(
         Some(config.stop_loss_pct),
         Some(config.take_profit_pct),
         config.trailing_stop_pct,
-        100.0,
+        config.sell_percentage,
         entry_price,
     ).await {
         error!("Sniper: failed to create sentinel for {}: {}", symbol, e);

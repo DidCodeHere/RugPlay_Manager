@@ -20,6 +20,8 @@
 - [Automation Log](#automation-log)
 - [User Profiles & Leaderboard](#user-profiles--leaderboard)
 - [Mobile Remote Access](#mobile-remote-access)
+- [About & Guides](#about--guides)
+- [Reset to Defaults](#reset-to-defaults)
 - [Settings](#settings)
 
 ---
@@ -169,6 +171,12 @@ Automatically sells when a coin drops below a percentage threshold from your ent
 
 **Example:** You bought $COIN at $1.00 with a -20% Stop-Loss. If the price drops to $0.80, Sentinel sells your entire position.
 
+#### Positive Stop-Loss (Profit Floor)
+
+Setting a positive stop-loss value creates a profit floor instead of a loss limiter. The sentinel only fires once the coin has actually reached that profit level, preventing premature sells if price hasn't risen that far yet.
+
+**Example:** You set a +50% Stop-Loss. Sentinel waits until the coin reaches +50% profit, then locks in that level. If the price later drops back to +50%, it sells to protect your gains.
+
 #### Take-Profit
 
 Automatically sells when a coin rises above a percentage threshold from your entry price.
@@ -193,6 +201,20 @@ A dynamic stop-loss that moves up with the price but never moves down. This lets
 ### How It Works
 
 Sentinel runs as a background task that continuously checks prices against your configured thresholds. When a threshold is hit, it immediately queues a sell order. All monitoring happens locally — prices are fetched from Rugplay's API.
+
+### Management
+
+The sentinel table includes full management features:
+
+- **Search bar** — Filter sentinels by coin symbol
+- **Status filter tabs** — Quick-filter for All, Active, Paused, or Triggered sentinels
+- **Sortable columns** — Click any column header (Coin, Entry Price, Stop Loss, Take Profit, Sell %, Status) to sort ascending or descending
+- **Coin icons** — Each sentinel row displays the coin's icon for quick visual identification
+- **Transaction tooltips** — Hover a sentinel row to see recent buy/sell transactions for that coin
+
+### Portfolio Integration
+
+Coins protected by an active sentinel display a shield icon in the Portfolio holdings table. Hover the shield for a quick sentinel breakdown (SL, TP, TS, Sell %), or click it to jump to the Sentinel page with that coin's search pre-filled.
 
 ---
 
@@ -282,21 +304,23 @@ Example tier setup:
 
 ### Aggressiveness Presets
 
-| Setting             | Conservative | Moderate  | Aggressive |
-| ------------------- | ------------ | --------- | ---------- |
-| Buy amount          | $500         | $1,000    | $2,000     |
-| Min sell value      | $5,000       | $2,000    | $1,000     |
-| Min volume (24h)    | $10,000      | $5,000    | $2,000     |
-| Min market cap      | $50,000      | $20,000   | $10,000    |
-| Max drop %          | -30%         | -50%      | -70%       |
-| Min confidence      | 65%          | 55%       | 45%        |
-| Max slippage        | 3%           | 5%        | 10%        |
-| Daily limit         | 5            | 10        | 20         |
-| Cooldown            | 300s         | 180s      | 60s        |
-| Scale by confidence | Yes          | Yes       | No         |
-| Auto sentinel       | Yes          | Yes       | Yes        |
-| SL/TP               | -15%/+50%    | -20%/+80% | -25%/+150% |
-| Trailing stop       | 10%          | 12%       | 15%        |
+All presets are derived from a 875-coin backtest analysis across 189,000 configurations.
+
+| Setting             | Conservative | Moderate   | Aggressive  |
+| ------------------- | ------------ | ---------- | ----------- |
+| Buy amount          | $500         | $1,000     | $2,000      |
+| Min sell value      | $5,000       | $2,000     | $1,000      |
+| Min volume (24h)    | $10,000      | $5,000     | $2,000      |
+| Min market cap      | $100,000     | $20,000    | $10,000     |
+| Max drop %          | -5%          | -5%        | -10%        |
+| Min confidence      | 65%          | 55%        | 45%         |
+| Max slippage        | 3%           | 5%         | 10%         |
+| Daily limit         | 5            | 10         | 20          |
+| Cooldown            | 300s         | 180s       | 60s         |
+| Scale by confidence | Yes          | Yes        | No          |
+| Auto sentinel       | Yes          | Yes        | Yes         |
+| SL/TP               | -10%/+200%   | -30%/+500% | -50%/+1000% |
+| Trailing stop       | Off          | Off        | Off         |
 
 Each preset also includes a default set of four Coin Tiers. Tiers are disabled by default but can be toggled on from the Strategy tab.
 
@@ -448,6 +472,54 @@ You can change a session's role, kick sessions, and set the default role for new
 - Recent trade activity
 - Module status (which modules are running)
 - Connection status and session info
+
+---
+
+## About & Guides
+
+The About & Guides page provides research-backed insights and embedded documentation directly within the app.
+
+### Tabs
+
+| Group  | Tab            | Content                                                                                |
+| ------ | -------------- | -------------------------------------------------------------------------------------- |
+| About  | Overview       | Research pipeline stats, tier distribution charts, market insights, tech stack         |
+| About  | Research Data  | Tier performance comparisons, optimal sentinel configs, top coins by Sortino ratio     |
+| About  | Best Settings  | Data-driven settings with explanations, DipBuyer preset comparison, strategy takeaways |
+| Guides | Feature Guide  | Full feature documentation (rendered in-app)                                           |
+| Guides | Strategy Guide | Interactive strategy selector with per-module descriptions                             |
+| Guides | Installation   | Installation and setup instructions                                                    |
+| Guides | Architecture   | Technical architecture documentation                                                   |
+| Guides | Security       | Security and transparency details                                                      |
+
+All guide content is rendered from Markdown embedded at compile time, so docs are always in sync with your installed version.
+
+### Research Data
+
+The Overview and Research Data tabs pull from a research manifest built by analyzing 875 coins across 92,873 candle rows and ~189,000 backtest configurations. Key findings:
+
+- Trailing stops consistently hurt performance across all market cap tiers
+- Optimal balanced sentinel config: SL -30%, TP 500%, no trailing stop
+- Median return across all coins: 522% (but median drawdown: -98.5%)
+- 34.7% of coins exhibit pump-and-dump patterns
+
+---
+
+## Reset to Defaults
+
+Both the Settings page and DipBuyer page include a **Reset to Defaults** button that restores all parameters to research-backed optimal values.
+
+### Settings Reset
+
+- Applies the balanced sentinel config (SL -30%, TP 500%, trailing stop off)
+- Batch-updates all existing sentinels that don't have custom settings
+- Resets notification and general preferences
+
+### DipBuyer Reset
+
+- Regenerates all coin tiers with research-derived market cap boundaries
+- Restores the selected aggressiveness preset's parameters
+- Preserves your coin blacklist
 
 ---
 

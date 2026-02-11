@@ -169,5 +169,29 @@
   .page-enter {
     @apply animate-fade-in;
   }
+
+  /* Markdown doc viewer */
+  .doc-viewer h1 { @apply text-2xl font-bold mb-4 mt-8 first:mt-0 text-foreground; }
+  .doc-viewer h2 { @apply text-xl font-semibold mb-3 mt-6 text-foreground border-b border-white/[0.06] pb-2; }
+  .doc-viewer h3 { @apply text-lg font-semibold mb-2 mt-5 text-foreground; }
+  .doc-viewer h4 { @apply text-base font-medium mb-2 mt-4 text-foreground; }
+  .doc-viewer p { @apply text-sm text-foreground-muted mb-3 leading-relaxed; }
+  .doc-viewer ul { @apply list-disc list-inside text-sm text-foreground-muted mb-3 space-y-1; }
+  .doc-viewer ol { @apply list-decimal list-inside text-sm text-foreground-muted mb-3 space-y-1; }
+  .doc-viewer li { @apply leading-relaxed; }
+  .doc-viewer li > ul, .doc-viewer li > ol { @apply ml-4 mt-1; }
+  .doc-viewer a { @apply text-violet-400 hover:text-violet-300 underline underline-offset-2; }
+  .doc-viewer code { @apply text-xs px-1.5 py-0.5 rounded bg-white/[0.06] text-emerald-400 font-mono; }
+  .doc-viewer pre { @apply text-xs p-4 rounded-lg bg-white/[0.04] border border-white/[0.06] overflow-x-auto mb-4; }
+  .doc-viewer pre code { @apply bg-transparent p-0 text-foreground; }
+  .doc-viewer blockquote { @apply border-l-2 border-violet-500/40 pl-4 text-sm text-foreground-muted italic mb-4; }
+  .doc-viewer table { @apply w-full text-sm mb-4 border-collapse; }
+  .doc-viewer thead { @apply border-b border-white/[0.08]; }
+  .doc-viewer th { @apply text-left p-2 text-xs font-semibold text-foreground-muted; }
+  .doc-viewer td { @apply p-2 text-sm text-foreground-muted border-b border-white/[0.04]; }
+  .doc-viewer tr:hover { @apply bg-white/[0.02]; }
+  .doc-viewer hr { @apply border-white/[0.06] my-6; }
+  .doc-viewer img { @apply rounded-lg max-w-full my-4; }
+  .doc-viewer strong { @apply text-foreground font-semibold; }
 }
 

@@ -6,6 +6,119 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.0.2] — 2026-02-11
+
+Phase 8: Research-Driven Optimization, Sentinel Reliability, and Portfolio UX improvements.
+
+### Added
+
+#### Research & Analysis Pipeline (Phase 8A–8B)
+
+- **Market data collection tooling** — `collect_market_data.py` with 7 collection profiles (default, wide, bluechip, microcap, fresh, movers, comprehensive) and `--all-pages` flag for 10K+ coin sweeps
+- **Dataset merger** — `merge_datasets.py` combines multiple collection runs, deduplicates by (symbol, timestamp)
+- **Deep analysis engine** — `deep_analysis.py` backtests 216 SL/TP/TS grid configurations per coin across 875 coins (92,873 candle rows, ~189,000 total backtests), outputs `research_manifest.json`
+- **RL backtest environment** — Gymnasium-compatible PPO training pipeline via stable-baselines3 with degenerate agent detection (rejects agents that learn trivially-narrow configs)
+- **`apply_defaults.py`** — Analyzes RL results, filters degenerate strategies, reports applied vs rejected configs
+
+#### Research Manifest System (Phase 8C)
+
+- **Builtin research manifest** — 875-coin analysis compiled into the Rust binary via `builtin_manifest()`, with disk override support (`research_manifest.json` in app data)
+- **`get_research_manifest` command** — Serves the full manifest to the frontend, preferring a user-generated disk version over the compiled-in fallback
+- **`get_research_defaults` command** — Returns the balanced sentinel configuration from research for settings reset
+- **`get_research_dipbuyer_presets` command** — Returns research-backed DipBuyer presets by aggressiveness level
+- **`get_research_about` command** — Aggregated stats, top coins, and tier summaries for the About page
+- **`get_doc_content` command** — Serves 8 embedded markdown documents (Features, Architecture, Installation, Building, Security, README, Changelog, Contributing) via `include_str!`
+- **`useResearch` hooks** — 4 React hooks (`useResearchManifest`, `useResearchDefaults`, `useResearchDipBuyerPresets`, `useResearchAbout`) for consuming manifest data
+- **Research TypeScript types** — `ResearchManifest`, `ResearchSentinelConfig`, `ResearchPerformanceStats`, `ResearchTierBreakdown`, `ResearchTopCoin`, `ResearchAboutData`, and related interfaces
+
+#### About & Guides Page (Phase 8E)
+
+- **About page** — New 8-tab page split into "About" (Overview, Research Data, Best Settings) and "Guides" (Feature Guide, Strategy Guide, Installation, Architecture, Security) groups
+- **Overview tab** — Hero banner with research pipeline stats, tier distribution bar charts (MCap and volume tiers), market insight cards (median return, drawdown, pump & dump rate), tech stack grid
+- **Research Insights tab** — Tier performance comparison cards, 3 optimal sentinel strategies (Balanced, Best Risk-Adjusted, Best Median P&L), per-tier sentinel configs, top 15 coins table ranked by Sortino ratio
+- **Best Settings tab** — Data-driven settings breakdown with reasoning for each parameter, DipBuyer preset comparison across Conservative/Moderate/Aggressive, strategy takeaways
+- **Doc Viewer component** — Markdown renderer using `react-markdown` + `remark-gfm` with custom CSS styling for embedded documentation
+- **Strategy Guide tab** — Interactive strategy selector (Sentinel, Sniper, Mirror, DipBuyer) with descriptions
+- **Sidebar navigation** — Added "About & Guides" nav item with Info icon
+
+#### Reset to Defaults (Phase 8D)
+
+- **`reset_app_settings` command** — Resets sentinel defaults to research-backed balanced config (SL -30%, TP 500%, no trailing stop), batch-updates all existing non-custom sentinels in the database
+- **`reset_dipbuyer_config` command** — Regenerates DipBuyer configuration from research presets for the given aggressiveness level, preserves blacklisted coins
+- **Settings page reset button** — One-click reset with confirmation banner, applies balanced sentinel config from research data
+- **DipBuyer page reset button** — One-click reset with confirmation banner, rebuilds coin tiers and parameters from research presets
+
+#### Sentinel Overhaul (Phase 8A)
+
+- **Positive stop-loss (profit floor)** — Negative SL values protect against losses, positive SL values lock in profit with an activation guard that only fires once price has reached the threshold
+- **Unified trigger evaluation** — Extracted `evaluate_sentinel` function into dedicated module, eliminating 3-way trigger logic duplication across sentinel loop, manual check, and DipBuyer sentinel paths
+- **`TriggerResult` struct** — Sentinel triggers now return structured data (trigger type, reason string, trigger price) for consistent logging
+- **Sentinel event log enrichment** — Trigger logs now include trigger reason, entry price, trigger price, and realized P&L
+- **Mirror sentinel fix** — Mirror-created sentinels now use `create_sentinel_for_buy` with the user's actual fill price and configured sell percentage instead of hardcoded values
+- **Sniper sell percentage fix** — Sniper-created sentinels now read sell percentage from `sentinel_defaults` setting instead of hardcoding 100%
+
+### Changed
+
+- **Aggressiveness presets updated** — All three DipBuyer presets (Conservative, Moderate, Aggressive) now use research-backed values: Conservative SL -10%/TP 200%, Moderate SL -30%/TP 500%, Aggressive SL -50%/TP 1000%. All presets set trailing stop to off (research finding: trailing stops hurt performance across all tiers)
+- **Coin tier MCap boundaries** — Updated to research-derived boundaries: Small ($1K–$10K, 561 coins), Medium ($10K–$100K, 137 coins), Large ($100K–$1M, 72 coins), Mega (>$1M, 104 coins)
+- **`DEFAULT_SETTINGS` constant** — Frontend defaults aligned to research balanced config (SL -30%, TP 500%, trailing stop off, auto-manage enabled)
+- **Trailing stop removal from defaults** — All presets and default configs now disable trailing stops based on research finding that they consistently reduce returns across every tier and volume category
+- **Stop-loss sign normalization** — All default sentinel SL values are explicitly negative to prevent accidental positive-SL (profit floor) activation
+
+### Research Findings
+
+Key statistical outcomes from the 875-coin analysis that drove default changes:
+
+| Metric                      | Value    |
+| --------------------------- | -------- |
+| Coins analyzed              | 875      |
+| Candle rows processed       | 92,873   |
+| Grid configs per coin       | 216      |
+| Total backtests             | ~189,000 |
+| Overall median return       | 522%     |
+| Overall median drawdown     | -98.5%   |
+| Pump & dump rate            | 34.7%    |
+| Coins with positive Sortino | 133      |
+
+**Optimal sentinel configs identified:**
+
+| Strategy           | SL   | TP    | Trailing Stop |
+| ------------------ | ---- | ----- | ------------- |
+| Balanced (default) | -30% | 500%  | Off           |
+| Best Risk-Adjusted | -50% | 1000% | Off           |
+| Best Median P&L    | -5%  | 1000% | Off           |
+
+#### Sentinel UX Improvements
+
+- **Coin icons in sentinel table** — Sentinel rows now display the coin's icon image, matching the portfolio and market views
+- **Transaction hover tooltips** — Hovering a sentinel row shows a lazy-loaded tooltip with recent buy/sell transactions for that coin, cached per-symbol
+- **Search bar** — Filter sentinels by coin symbol in real-time
+- **Status filter tabs** — Quick-filter tabs for All, Active, Paused, and Triggered sentinels with count badges
+- **Sortable columns** — Click column headers (Coin, Entry Price, Stop Loss, Take Profit, Sell %, Status) to sort ascending/descending with direction indicators
+- **Empty state with "Clear filters"** — Shown when search/filter yields no results, with a link to reset
+- **"Showing X of Y sentinels"** footer when filtered
+
+#### Portfolio Sentinel Integration
+
+- **Sentinel shield indicator** — Portfolio holdings with active sentinels now display an emerald shield icon next to the coin symbol
+- **Shield hover tooltip** — Hovering the shield shows a quick sentinel breakdown: stop loss, take profit, trailing stop, and sell percentage
+- **Shield click navigation** — Clicking the shield navigates to the Sentinel page with the search bar pre-filled to that coin's symbol
+- **Cross-page state** — `sentinelSearchQuery` state in Dashboard wires the portfolio shield click to the sentinel page's `initialSearch` prop
+
+#### Sentinel Reliability (Bug Fixes)
+
+- **Duplicate sentinel rows** — `list_sentinels` now deduplicates by symbol, preferring active non-triggered entries over triggered ones
+- **Instant-trigger on re-buy** — 120-second grace period after sentinel creation prevents immediate triggers when auto-sync creates sentinels with stale entry prices
+- **Sentinel fails to sell** — Differentiated error handling: rate limits get short cooldowns, zero-balance coins get auto-triggered, pool-limit errors retry with capped amounts
+- **Triggered sentinels never cleaned** — Both periodic cleanup and auto-sync now purge triggered sentinels for coins no longer held
+- **Duplicate triggered rows** — New `cleanup_duplicate_triggered` function keeps only the newest triggered sentinel per symbol
+
+### Fixed
+
+- **`navGuardRef` missing declaration** — Added `useRef` initialization in Dashboard.tsx after sentinel search query state addition
+
+---
+
 ## [2.0.1] — 2026-02-10
 
 This is the first public stable release. Previous versions (v0.1.0 through v1.2.0) went through extensive private iteration and testing but were never publicly released due to build and runtime issues discovered during QA. This release consolidates all improvements from that development cycle into a single stable package.

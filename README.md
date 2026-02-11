@@ -51,14 +51,14 @@
 
 ### Why RugPlay Manager?
 
-| Problem                                   | Solution                                                             |
-| ----------------------------------------- | -------------------------------------------------------------------- |
-| Missing profitable trades while you sleep | **Sniper Bot** — Auto-buys new coins the instant they launch         |
-| Watching profits evaporate                | **Sentinel** — Automated Stop-Loss, Take-Profit & Trailing Stops     |
-| Can't keep up with whale traders          | **Mirror Trading** — Copy top traders' moves in real-time            |
-| Forgetting to claim daily rewards         | **Harvester** — Auto-claims your 12h rewards on schedule             |
-| Missing dip-buying opportunities          | **Dip Buyer** — Signal-scored dip buying with per-tier coin settings |
-| Can't monitor trades on the go            | **Mobile Access** — Control everything from your phone               |
+| Problem                                   | Solution                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| Missing profitable trades while you sleep | **Sniper Bot** — Auto-buys new coins the instant they launch     |
+| Watching profits evaporate                | **Sentinel** — Automated Stop-Loss, Take-Profit & Trailing Stops |
+| Can't keep up with whale traders          | **Mirror Trading** — Copy top traders' moves in real-time        |
+| Forgetting to claim daily rewards         | **Harvester** — Auto-claims your 12h rewards on schedule         |
+| Missing dip-buying opportunities          | **Dip Buyer** — Research-backed dip buying with signal analysis  |
+| Can't monitor trades on the go            | **Mobile Access** — Control everything from your phone           |
 
 ---
 
@@ -82,6 +82,7 @@
 |  **Leaderboard**   |     Top traders ranked by net worth, losses, and rug pulls      |  Live  |
 | **Mobile Remote**  |   Control & monitor your bot from any phone via secure tunnel   |  Live  |
 |    **Settings**    |     Per-module configuration with risk management controls      |  Live  |
+| **About & Guides** |   Research data, optimal settings, and embedded documentation   |  Live  |
 
 </div>
 
@@ -178,12 +179,12 @@
 ### Quick Start (Recommended)
 
 1. **Download** the latest installer from the [**Releases Page**](../../releases/latest)
-   - **Windows:** `RugPlay Manager_1.0.0_x64-setup.exe` (NSIS) or `.msi`
-   - **Linux:** `RugPlay Manager_1.0.0_amd64.deb` (Debian/Ubuntu) or `.AppImage` (any distro)
+   - **Windows:** `RugPlay Manager_2.0.2_x64-setup.exe` (NSIS) or `.msi`
+   - **Linux:** `RugPlay Manager_2.0.2_amd64.deb` (Debian/Ubuntu) or `.AppImage` (any distro)
 2. **Install and launch** the application
    - Windows: Run the `.exe` installer and follow the setup wizard
-   - Linux (deb): `sudo dpkg -i "RugPlay Manager_1.0.0_amd64.deb"`
-   - Linux (AppImage): `chmod +x *.AppImage && ./"RugPlay Manager_1.0.0_amd64.AppImage"`
+   - Linux (deb): `sudo dpkg -i "RugPlay Manager_2.0.2_amd64.deb"`
+   - Linux (AppImage): `chmod +x *.AppImage && ./"RugPlay Manager_2.0.2_amd64.AppImage"`
 3. **Enter** your Rugplay session token (see below)
 4. **Start trading**
 
@@ -267,14 +268,15 @@ rugplay-manager/
 └── DemoImages/         # Screenshots for documentation
 ```
 
-|     Layer      |      Technology       |                    Purpose                    |
-| :------------: | :-------------------: | :-------------------------------------------: |
-|  **Backend**   |     Rust + Tokio      | Async runtime, all API calls, trade execution |
-|  **Frontend**  |  React + TypeScript   |           Interactive dashboard UI            |
-|  **Styling**   | Tailwind CSS + Shadcn |      Dark-themed, responsive components       |
-| **Framework**  |       Tauri 2.0       |     Native desktop app with web frontend      |
-|  **Database**  |     SQLite (SQLx)     | Local storage for holdings, settings, history |
-| **Encryption** |      AES-256-GCM      |       Session token encryption at rest        |
+|     Layer      |      Technology       |                     Purpose                     |
+| :------------: | :-------------------: | :---------------------------------------------: |
+|  **Backend**   |     Rust + Tokio      |  Async runtime, all API calls, trade execution  |
+|  **Frontend**  |  React + TypeScript   |            Interactive dashboard UI             |
+|  **Styling**   | Tailwind CSS + Shadcn |       Dark-themed, responsive components        |
+| **Framework**  |       Tauri 2.0       |      Native desktop app with web frontend       |
+|  **Database**  |     SQLite (SQLx)     |  Local storage for holdings, settings, history  |
+| **Encryption** |      AES-256-GCM      |        Session token encryption at rest         |
+|  **Research**  |     Python + Rust     | 875-coin backtest pipeline driving all defaults |
 
 > **Full architecture deep-dive for auditors:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 

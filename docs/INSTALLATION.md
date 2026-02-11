@@ -26,13 +26,13 @@
 
 **Windows:**
 
-- **Recommended:** `RugPlay Manager_2.0.1_x64-setup.exe` (6.4 MB) — standard Windows installer
-- **Alternative:** `RugPlay Manager_2.0.1_x64_en-US.msi` (9.4 MB) — for silent/enterprise installs
+- **Recommended:** `RugPlay Manager_2.0.2_x64-setup.exe` (6.4 MB) — standard Windows installer
+- **Alternative:** `RugPlay Manager_2.0.2_x64_en-US.msi` (9.4 MB) — for silent/enterprise installs
 
 **Linux:**
 
-- **Debian/Ubuntu:** `RugPlay Manager_2.0.1_amd64.deb` (12 MB)
-- **Any distro:** `RugPlay Manager_2.0.1_amd64.AppImage` (~33 MB) — no installation required
+- **Debian/Ubuntu:** `RugPlay Manager_2.0.2_amd64.deb` (12 MB)
+- **Any distro:** `RugPlay Manager_2.0.2_amd64.AppImage` (~33 MB) — no installation required
 
 3. **Note:** Your browser or Windows Defender may warn you about downloading an unsigned application. See the [Security FAQ](#windows-defender--smartscreen-warning) below.
 
@@ -45,12 +45,12 @@
 3. Click **Install** and wait for it to finish
 4. The installer creates a Start Menu entry and optional Desktop shortcut
 
-> **Silent install (MSI):** Run `msiexec /i "RugPlay Manager_2.0.1_x64_en-US.msi" /quiet` from an elevated command prompt.
+> **Silent install (MSI):** Run `msiexec /i "RugPlay Manager_2.0.2_x64_en-US.msi" /quiet` from an elevated command prompt.
 
 #### Linux (Debian/Ubuntu)
 
 ```bash
-sudo dpkg -i "RugPlay Manager_2.0.1_amd64.deb"
+sudo dpkg -i "RugPlay Manager_2.0.2_amd64.deb"
 ```
 
 If you get dependency errors, run:
@@ -66,8 +66,8 @@ Required runtime dependencies: `libwebkit2gtk-4.1-0`, `libgtk-3-0`, `libayatana-
 No installation needed — just make it executable and run:
 
 ```bash
-chmod +x "RugPlay Manager_2.0.1_amd64.AppImage"
-./"RugPlay Manager_2.0.1_amd64.AppImage"
+chmod +x "RugPlay Manager_2.0.2_amd64.AppImage"
+./"RugPlay Manager_2.0.2_amd64.AppImage"
 ```
 
 > **Tip:** Move the AppImage to `~/Applications/` or `/opt/` for a permanent location.

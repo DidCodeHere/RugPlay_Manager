@@ -3,6 +3,7 @@
 /scripts
 /target
 /buildout.txt
+/_local
 node_modules
 *.db
 *.db-shm

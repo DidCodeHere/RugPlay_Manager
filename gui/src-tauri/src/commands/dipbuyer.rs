@@ -90,6 +90,27 @@ pub async fn get_dipbuyer_preset(
     Ok(preset.to_preset())
 }
 
+/// Reset the entire DipBuyer config to research-backed defaults for the given preset.
+/// Clears persisted config from the DB and applies a fresh preset, preserving only the blacklist.
+#[tauri::command]
+pub async fn reset_dipbuyer_config(
+    app_handle: tauri::AppHandle,
+    handle: State<'_, DipBuyerHandle>,
+    preset: Option<Aggressiveness>,
+) -> Result<DipBuyerConfig, String> {
+    let current = handle.get_config().await;
+    let level = preset.unwrap_or(current.preset.clone());
+
+    let mut fresh = level.to_preset();
+    // Preserve existing blacklisted coins across reset
+    fresh.blacklisted_coins = current.blacklisted_coins.clone();
+
+    handle.set_config(fresh.clone()).await;
+    dipbuyer::save_dipbuyer_config(&app_handle, &fresh).await;
+
+    Ok(fresh)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DipBuyerLogEntry {

@@ -35,6 +35,7 @@ RugPlay Manager is a native desktop application for **Windows and Linux**, built
 | Encryption | AES-256-GCM + Argon2     | Session token protection                           |
 | HTTP       | reqwest                  | API communication with Rugplay                     |
 | Platforms  | Windows + Linux (x86_64) | Conditional compilation for platform-specific APIs |
+| Research   | Python + Rust            | 875-coin backtest pipeline compiled into binary    |
 
 The application emulates browser requests to `rugplay.com`. From the server's perspective, it looks identical to a user interacting with the site normally.
 
@@ -157,6 +158,8 @@ Contains all trading logic and strategy implementations.
 - `strategies/mirror.rs` — Whale trade detection and copy-trading
 - `risk/` — Position sizing, risk limits, cool-down logic
 - `executor/queue.rs` — Trade queue with priority ordering (Moonbag > Sentinel > Mirror > Sniper)
+
+**Sentinel trigger evaluation** is centralized in a single `evaluate_sentinel()` function that handles all trigger types (stop-loss, positive stop-loss/profit floor, take-profit, trailing stop) and returns a `TriggerResult` struct. This eliminates the previous duplication across the sentinel loop, manual check, and DipBuyer sentinel paths.
 
 **Important implementation detail:** Sentinel tracks `highest_price_seen` per coin for trailing stops. This value is stored in memory and persisted to the database to survive restarts.
 
@@ -288,9 +291,35 @@ src/components/
 ├── user/          # User profile pages
 ├── leaderboard/   # Leaderboard with 4 category tabs
 ├── mobile/        # Mobile access setup page
-├── settings/      # Tabbed settings (General, Sniper, Sentinel, etc.)
+├── settings/      # Settings pages with reset-to-defaults
+├── about/         # About & Guides page (8 tabs, research data, doc viewer)
 ├── trade/         # Shared trade components
 └── layout/        # Sidebar, Dashboard shell, routing
+```
+
+### Hooks
+
+```
+src/hooks/
+├── useResearch.ts  # 4 hooks for research manifest data (manifest, defaults, presets, about stats)
+└── ...             # Other custom hooks
+```
+
+### Tauri Commands
+
+The Rust backend exposes commands organized by domain:
+
+```
+src-tauri/src/commands/
+├── auth.rs         # Profile management, token validation
+├── portfolio.rs    # Portfolio fetching
+├── trading.rs      # Buy/sell execution
+├── sentinel.rs     # Sentinel CRUD and monitoring
+├── settings.rs     # App settings + reset_app_settings
+├── dipbuyer.rs     # DipBuyer config + reset_dipbuyer_config
+├── research.rs     # Research manifest, defaults, about stats, doc serving
+├── monitor.rs      # Sentinel monitor status
+└── ...             # Other command modules
 ```
 
 ### State Management
@@ -387,6 +416,27 @@ CREATE TABLE reputation (
     total_extracted REAL DEFAULT 0
 );
 ```
+
+---
+
+## Research Manifest Pipeline
+
+All default sentinel and DipBuyer settings are derived from a data pipeline rather than hand-tuned:
+
+```
+Python Scripts (_local/)                  Rust Binary                    React Frontend
+┌─────────────────────┐    ┌─────────────────────────────┐    ┌────────────────────────┐
+│ collect_market_data  │    │ builtin_manifest()          │    │ useResearchManifest()  │
+│ merge_datasets       │───►│ (include_str! at compile)   │───►│ useResearchDefaults()  │
+│ deep_analysis        │    │                             │    │ useResearchAbout()     │
+│ → research_manifest  │    │ Disk override check:        │    │                        │
+│   .json              │    │ {app_data}/research_manifest│    │ About & Guides page    │
+└─────────────────────┘    └─────────────────────────────┘    └────────────────────────┘
+```
+
+**Stats:** 875 coins analyzed, 92,873 candle rows, 216 grid configs per coin, ~189,000 total backtests.
+
+The manifest includes per-tier performance data, optimal sentinel configurations (3 strategies), and top coin rankings by Sortino ratio. Users can regenerate the manifest by running the Python pipeline and placing the output in the app data directory — the Rust backend checks for a disk version before falling back to the compiled-in default.
 
 ---
 
